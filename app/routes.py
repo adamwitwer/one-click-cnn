@@ -21,8 +21,8 @@ HTML_PAGE = """
     <h1>📺 Roku Control</h1>
     <form action="/start-yttv" method="post">
       <button type="submit" style="
-        font-size: 1.5em;
-        padding: 1em 2em;
+        font-size: 3em;
+        padding: 2em 3em;
         background-color: #673ab7;
         color: white;
         border: none;
@@ -52,6 +52,6 @@ def register_routes(app):
         requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
         time.sleep(0.5)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
-        time.sleep(0.5)
+        time.sleep(3)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
         return "✅ YouTube TV launched and overlay cleared."
