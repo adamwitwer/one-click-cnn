@@ -52,6 +52,6 @@ def register_routes(app):
         requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
         time.sleep(0.5)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
-        time.sleep(3)
+        time.sleep(7)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
         return "✅ YouTube TV launched and overlay cleared."
