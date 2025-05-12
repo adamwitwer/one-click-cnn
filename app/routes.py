@@ -55,16 +55,6 @@ def register_routes(app):
         time.sleep(7)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
 
-            @app.route("/start-yttv", methods=["POST"])
-    def launch_yttv():
-        requests.post(f"http://{ROKU_IP}:8060/launch/{YOUTUBE_TV_APP_ID}")
-        time.sleep(6)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
-        time.sleep(0.5)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
-        time.sleep(7)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
-
         return render_template_string("""
         <html>
           <head>
