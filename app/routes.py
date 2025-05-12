@@ -54,4 +54,26 @@ def register_routes(app):
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
         time.sleep(7)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
-        return "✅ YouTube TV launched and overlay cleared."
+
+            @app.route("/start-yttv", methods=["POST"])
+    def launch_yttv():
+        requests.post(f"http://{ROKU_IP}:8060/launch/{YOUTUBE_TV_APP_ID}")
+        time.sleep(6)
+        requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
+        time.sleep(0.5)
+        requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
+        time.sleep(7)
+        requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
+
+        return render_template_string("""
+        <html>
+          <head>
+            <meta http-equiv="refresh" content="2; url=/" />
+            <title>Done!</title>
+          </head>
+          <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
+            <h1>✅ YouTube TV launched</h1>
+            <p>Returning to control screen...</p>
+          </body>
+        </html>
+        """)
