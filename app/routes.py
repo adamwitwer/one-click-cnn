@@ -2,7 +2,7 @@ import requests
 import time
 from flask import render_template_string
 
-ROKU_IP = "192.168.1.247"
+ROKU_IP = "192.168.30.129"
 YOUTUBE_TV_APP_ID = "195316"
 
 HTML_PAGE = """
@@ -48,9 +48,9 @@ def register_routes(app):
     @app.route("/start-yttv", methods=["POST"])
     def launch_yttv():
         requests.post(f"http://{ROKU_IP}:8060/launch/{YOUTUBE_TV_APP_ID}")
-        time.sleep(8)
+        time.sleep(10)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
-        time.sleep(4)
+        time.sleep(6)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
         time.sleep(7)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
