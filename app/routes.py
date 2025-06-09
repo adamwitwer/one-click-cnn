@@ -2,7 +2,7 @@ import requests
 import time
 from flask import render_template_string
 
-ROKU_IP = "192.168.30.129"
+ROKU_IP = "192.168.50.129"
 YOUTUBE_TV_APP_ID = "195316"
 
 HTML_PAGE = """
@@ -52,8 +52,6 @@ def register_routes(app):
         requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
         time.sleep(6)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
-        time.sleep(7)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
 
         return render_template_string("""
         <html>
