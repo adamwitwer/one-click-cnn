@@ -1,9 +1,29 @@
 import requests
 import time
+import os
 from flask import render_template_string
 
-ROKU_IP = "192.168.30.129"
+ROKU_IP = "192.168.50.129"
 YOUTUBE_TV_APP_ID = "195316"
+SMARTTHINGS_TOKEN = os.getenv("SMARTTHINGS_TOKEN")
+SMARTTHINGS_TV_DEVICE_ID = os.getenv("SMARTTHINGS_TV_DEVICE_ID")
+
+def mute_tv_smartthings():
+    """Mute the Samsung TV via SmartThings API"""
+    url = f"https://api.smartthings.com/v1/devices/{SMARTTHINGS_TV_DEVICE_ID}/commands"
+    headers = {
+        "Authorization": f"Bearer {SMARTTHINGS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "commands": [{
+            "component": "main",
+            "capability": "audioMute",
+            "command": "mute"
+        }]
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    return response.status_code == 200
 
 HTML_PAGE = """
 <!doctype html>
@@ -53,7 +73,7 @@ def register_routes(app):
         time.sleep(6)
         requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
         time.sleep(7)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Mute")
+        mute_tv_smartthings()
 
         return render_template_string("""
         <html>
