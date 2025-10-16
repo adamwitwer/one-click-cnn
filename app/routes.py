@@ -60,6 +60,33 @@ HTML_PAGE = """
 </html>
 """
 
+def log(msg):
+    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}", flush=True)
+
+def is_yttv_running():
+    """Check if YouTube TV is currently the active app"""
+    try:
+        log("Checking current active app...")
+        resp = requests.get(f"http://{ROKU_IP}:8060/query/active-app", timeout=5)
+        if resp.status_code == 200:
+            # Parse the XML response to get the app ID
+            content = resp.text
+            log(f"Active app response: {content}")
+            
+            # Look for the app ID in the response
+            if f'id="{YOUTUBE_TV_APP_ID}"' in content:
+                log("YouTube TV is already running!")
+                return True
+            else:
+                log("YouTube TV is not currently active.")
+                return False
+        else:
+            log(f"Failed to query active app: {resp.status_code}")
+            return False
+    except requests.RequestException as e:
+        log(f"Failed to check active app: {e}")
+        return False
+
 def register_routes(app):
     @app.route("/")
     def home():
@@ -67,13 +94,62 @@ def register_routes(app):
 
     @app.route("/start-yttv", methods=["POST"])
     def launch_yttv():
-        requests.post(f"http://{ROKU_IP}:8060/launch/{YOUTUBE_TV_APP_ID}")
-        time.sleep(10)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
-        time.sleep(6)
-        requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
-        time.sleep(7)
-        mute_tv_smartthings()
+        log("Web request received to start YouTube TV")
+
+        # Check if YTTV is already running
+        if is_yttv_running():
+            log("YouTube TV is already active. Skipping launch to avoid overlay confusion.")
+            return render_template_string("""
+            <html>
+              <head>
+                <meta http-equiv="refresh" content="2; url=/" />
+                <title>Already Running</title>
+              </head>
+              <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
+                <h1>📺 YouTube TV is already running</h1>
+                <p>No action needed. Returning to control screen...</p>
+              </body>
+            </html>
+            """)
+
+        try:
+            log("Launching YouTube TV...")
+            resp = requests.post(f"http://{ROKU_IP}:8060/launch/{YOUTUBE_TV_APP_ID}", timeout=5)
+            log(f"Launch response: {resp.status_code}")
+        except requests.RequestException as e:
+            log(f"Failed to launch YouTube TV: {e}")
+            return render_template_string("""
+            <html>
+              <head>
+                <meta http-equiv="refresh" content="3; url=/" />
+                <title>Error</title>
+              </head>
+              <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
+                <h1>❌ Error launching YouTube TV</h1>
+                <p>Check the logs for details. Returning to control screen...</p>
+              </body>
+            </html>
+            """)
+
+        time.sleep(10)  # Give YTTV time to load
+
+        try:
+            log("Sending 'Up' command to dismiss overlay...")
+            requests.post(f"http://{ROKU_IP}:8060/keypress/Up")
+            time.sleep(6)  # Samsung TV OS hangs! Add 6s
+            log("Sending 'Select' command to confirm overlay dismissal...")
+            requests.post(f"http://{ROKU_IP}:8060/keypress/Select")
+            log("Overlay dismissed. CNN should be full screen.")
+        except requests.RequestException as e:
+            log(f"Failed to send overlay dismissal commands: {e}")
+
+        # Mute TV via SmartThings
+        time.sleep(1)
+        log("Muting TV via SmartThings...")
+        if mute_tv_smartthings():
+            log("TV muted successfully")
+        else:
+            log("Failed to mute TV via SmartThings")
 
         return render_template_string("""
         <html>
