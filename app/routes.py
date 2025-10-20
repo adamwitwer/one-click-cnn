@@ -16,7 +16,40 @@ OAUTH_TOKEN_URL = "https://api.smartthings.com/oauth/token"
 API_BASE = "https://api.smartthings.com/v1"
 TOKEN_FILE = os.path.expanduser("~/.smartthings_tokens.json")  # 👈 add this
 
-HTML_PAGE = """ ... your same HTML ... """
+HTML_PAGE = """ 
+<!doctype html>
+<html>
+  <head><title>Roku Remote</title></head>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon-96x96.png') }}" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" />
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
+  <meta name="apple-mobile-web-app-title" content="1CNN" />
+  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
+    <h1>📺 Roku Control</h1>
+    <form action="/start-yttv" method="post">
+      <button type="submit" style="
+        font-size: 3em;
+        padding: 2em 3em;
+        background-color: #673ab7;
+        color: white;
+        border: none;
+        border-radius: 12px;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+        cursor: pointer;
+        transition: transform 0.1s ease-in-out;
+      " 
+      onmouseover="this.style.transform='scale(1.05)'"
+      onmouseout="this.style.transform='scale(1)'">
+      ▶️ Start YouTube TV
+      </button>
+    </form>
+  </body>
+</html>
+"""
 
 def log(msg):
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}", flush=True)
