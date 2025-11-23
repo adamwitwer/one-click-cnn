@@ -2,7 +2,7 @@ import os
 import time
 import json
 import requests
-from flask import render_template_string
+from flask import render_template, request
 from dotenv import load_dotenv
 
 # Load .env sitting next to this file
@@ -22,61 +22,6 @@ SMARTTHINGS_TV_DEVICE_ID = os.getenv("SMARTTHINGS_TV_DEVICE_ID")
 OAUTH_TOKEN_URL = "https://api.smartthings.com/oauth/token"
 API_BASE = "https://api.smartthings.com/v1"
 TOKEN_FILE = os.path.expanduser("~/.smartthings_tokens.json")
-
-HTML_PAGE = """
-<!doctype html>
-<html>
-  <head><title>Roku Remote</title></head>
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon-96x96.png') }}" sizes="96x96" />
-  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
-  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" />
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
-  <meta name="apple-mobile-web-app-title" content="1CNN" />
-  <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}" />
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-    <h1>📺 Roku Control</h1>
-
-    <form action="/start-yttv" method="post">
-      <button type="submit" style="
-        font-size: 2.4em;
-        padding: 1.6em 2.8em;
-        background-color: #673ab7;
-        color: white;
-        border: none;
-        border-radius: 12px;
-        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
-        cursor: pointer;
-        transition: transform 0.1s ease-in-out;
-        margin-bottom: 1.5em;
-      "
-      onmouseover="this.style.transform='scale(1.05)'"
-      onmouseout="this.style.transform='scale(1)'">
-        ▶️ Start YouTube TV (legacy)
-      </button>
-    </form>
-
-    <form action="/start-cnn" method="post">
-      <button type="submit" style="
-        font-size: 2.2em;
-        padding: 1.4em 2.6em;
-        background-color: #e53935;
-        color: white;
-        border: none;
-        border-radius: 12px;
-        box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
-        cursor: pointer;
-        transition: transform 0.1s ease-in-out;
-      "
-      onmouseover="this.style.transform='scale(1.05)'"
-      onmouseout="this.style.transform='scale(1)'">
-        🟥 Start CNN App
-      </button>
-    </form>
-  </body>
-</html>
-"""
 
 def log(msg: str) -> None:
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}", flush=True)
@@ -213,7 +158,7 @@ def launch_roku_app(app_id: str, label: str) -> bool:
 def register_routes(app):
     @app.route("/")
     def home():
-        return render_template_string(HTML_PAGE)
+        return render_template("index.html")
 
     @app.route("/start-yttv", methods=["POST"])
     def launch_yttv():
@@ -222,32 +167,18 @@ def register_routes(app):
         # Check if YTTV is already running
         if is_yttv_running():
             log("YouTube TV is already active. Skipping launch to avoid overlay confusion.")
-            return render_template_string("""
-            <html>
-              <head>
-                <meta http-equiv="refresh" content="2; url=/" />
-                <title>Already Running</title>
-              </head>
-              <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-                <h1>📺 YouTube TV is already running</h1>
-                <p>No action needed. Returning to control screen...</p>
-              </body>
-            </html>
-            """)
+            return render_template("message.html", 
+                                   title="Already Running",
+                                   message="YouTube TV is already running. No action needed.",
+                                   refresh_time=2,
+                                   is_error=False)
 
         if not launch_roku_app(YOUTUBE_TV_APP_ID, "YouTube TV"):
-            return render_template_string("""
-            <html>
-              <head>
-                <meta http-equiv="refresh" content="3; url=/" />
-                <title>Error</title>
-              </head>
-              <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-                <h1>❌ Error launching YouTube TV</h1>
-                <p>Check the logs for details. Returning to control screen...</p>
-              </body>
-            </html>
-            """)
+            return render_template("message.html", 
+                                   title="Error",
+                                   message="Error launching YouTube TV. Check the logs for details.",
+                                   refresh_time=3,
+                                   is_error=True)
 
         # Give YTTV time to load, then dismiss overlay with Roku keypresses
         time.sleep(10)
@@ -269,36 +200,22 @@ def register_routes(app):
         else:
             log("Failed to mute TV via SmartThings (YTTV).")
 
-        return render_template_string("""
-        <html>
-          <head>
-            <meta http-equiv="refresh" content="2; url=/" />
-            <title>Done!</title>
-          </head>
-          <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-            <h1>✅ YouTube TV launched</h1>
-            <p>Returning to control screen...</p>
-          </body>
-        </html>
-        """)
+        return render_template("message.html", 
+                               title="Done!",
+                               message="YouTube TV launched successfully.",
+                               refresh_time=2,
+                               is_error=False)
 
     @app.route("/start-cnn", methods=["POST"])
     def launch_cnn():
         log("Web request received to start CNN Roku app")
 
         if not launch_roku_app(CNN_APP_ID, "CNN"):
-            return render_template_string("""
-            <html>
-              <head>
-                <meta http-equiv="refresh" content="3; url=/" />
-                <title>Error</title>
-              </head>
-              <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-                <h1>❌ Error launching CNN app</h1>
-                <p>Check the logs for details. Returning to control screen...</p>
-              </body>
-            </html>
-            """)
+            return render_template("message.html", 
+                                   title="Error",
+                                   message="Error launching CNN app. Check the logs for details.",
+                                   refresh_time=3,
+                                   is_error=True)
 
         # Let CNN app load & auto-dismiss its own overlay
         time.sleep(12)
@@ -309,15 +226,8 @@ def register_routes(app):
         else:
             log("Failed to mute TV via SmartThings (CNN).")
 
-        return render_template_string("""
-        <html>
-          <head>
-            <meta http-equiv="refresh" content="2; url=/" />
-            <title>Done!</title>
-          </head>
-          <body style="font-family: sans-serif; text-align: center; margin-top: 4em;">
-            <h1>✅ CNN app launched</h1>
-            <p>Returning to control screen...</p>
-          </body>
-        </html>
-        """)
+        return render_template("message.html", 
+                               title="Done!",
+                               message="CNN app launched successfully.",
+                               refresh_time=2,
+                               is_error=False)

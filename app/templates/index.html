@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Roku Control</h1>
+
+<div class="card">
+    <form action="/start-yttv" method="post">
+        <button type="submit" class="btn btn-primary">
+            <img src="{{ url_for('static', filename='img/yttv.png') }}" alt="YouTube TV" class="btn-logo">
+            Start YouTube TV
+        </button>
+    </form>
+
+    <form action="/start-cnn" method="post">
+        <button type="submit" class="btn btn-secondary">
+            <img src="{{ url_for('static', filename='img/cnn.svg') }}" alt="CNN" class="btn-logo">
+            Start CNN App
+        </button>
+    </form>
+</div>
+{% endblock %}

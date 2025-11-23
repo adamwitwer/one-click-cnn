@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head %}
+<meta http-equiv="refresh" content="{{ refresh_time }}; url=/" />
+{% endblock %}
+
+{% block content %}
+<div class="message-container">
+    {% if is_error %}
+    <h1>❌ Error</h1>
+    {% elif is_loading %}
+    <h1>⏳ Processing...</h1>
+    {% else %}
+    <h1>✅ Success</h1>
+    {% endif %}
+
+    <div class="card">
+        {% if is_loading %}
+        <div class="spinner"></div>
+        {% endif %}
+
+        <p style="font-size: 1.2rem; margin-bottom: 0;">{{ message }}</p>
+        <p style="color: var(--text-secondary); margin-top: 1rem; font-size: 0.9rem;">Returning to control screen...</p>
+    </div>
+</div>
+{% endblock %}
