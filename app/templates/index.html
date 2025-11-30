@@ -11,11 +11,26 @@
         </button>
     </form>
 
-    <form action="/start-cnn" method="post">
+    <form action="/start-cnn" method="post" onsubmit="showLoading()">
         <button type="submit" class="btn btn-secondary">
             <img src="{{ url_for('static', filename='img/cnn.svg') }}" alt="CNN" class="btn-logo">
             Start CNN App
         </button>
     </form>
 </div>
+
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <h2>Processing...</h2>
+    <p>Please wait while we launch the app.</p>
+</div>
+
+<script>
+    function showLoading() {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+    }
+
+    // Attach to the first form as well
+    document.querySelector('form[action="/start-yttv"]').addEventListener('submit', showLoading);
+</script>
 {% endblock %}
