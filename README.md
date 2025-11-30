@@ -20,7 +20,7 @@ A modern, Flask-based web application that simplifies your TV experience. Launch
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/yourusername/one-click-cnn.git
+    git clone https://github.com/adamwitwer/one-click-cnn.git
     cd one-click-cnn
     ```
 
