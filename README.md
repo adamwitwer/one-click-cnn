@@ -1,12 +1,12 @@
-# One-Click CNN 🧞📺
+# One-Touch CNN 🧞📺
 
-A modern, Flask-based web application that simplifies your TV experience. Launch YouTube TV or CNN on your Roku, clear annoying overlays, and mute your TV—all with a single tap from your smartphone.
+A modern, Flask-based web application that simplifies your TV experience. Launch the CNN app on your Roku and toggle your TV's mute status—all with a single tap from your smartphone.
 
 ## ✨ Features
 
--   **One-Touch Launch**: Instantly start YouTube TV or the CNN app on your Roku device.
+-   **One-Touch Launch**: Instantly start the CNN app on your Roku device.
+-   **Mute Toggle**: Quickly mute or unmute your Samsung TV via SmartThings.
 -   **Smart Automation**: Automatically dismisses "Are you still watching?" overlays and other pop-ups.
--   **SmartThings Integration**: Mutes your Samsung TV automatically upon launch.
 -   **Responsive Design**: Beautiful, dark-mode interface that looks great on any mobile device.
 -   **Real-time Feedback**: Visual loading indicators keep you informed while the magic happens.
 

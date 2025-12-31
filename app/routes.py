@@ -2,7 +2,7 @@ import os
 import time
 import json
 import requests
-from flask import render_template, request
+from flask import render_template, request, redirect, url_for
 from dotenv import load_dotenv
 
 # Load .env sitting next to this file
@@ -11,7 +11,6 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # ---------- Roku config ----------
 ROKU_IP = "192.168.50.129"
-YOUTUBE_TV_APP_ID = "195316"
 CNN_APP_ID = "65978"  # from /query/apps
 
 # ---------- SmartThings config ----------
@@ -71,20 +70,16 @@ def _get_access_token() -> str:
         _save_tokens(tokens)
     return tokens["access_token"]
 
-def mute_tv_smartthings(max_retries: int = 3, retry_delay: int = 3) -> bool:
-    """
-    Mute the Samsung TV via SmartThings API.
-    Handles:
-      - token refresh (401)
-      - transient device state errors (409/503) with retries
-    """
+def send_smartthings_command(capability: str, command: str, arguments: list = None, max_retries: int = 3, retry_delay: int = 3) -> bool:
+    """Send a command to the Samsung TV via SmartThings API."""
     token = _get_access_token()
     url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/commands"
     payload = {
         "commands": [{
             "component": "main",
-            "capability": "audioMute",
-            "command": "mute"
+            "capability": capability,
+            "command": command,
+            "arguments": arguments or []
         }]
     }
 
@@ -94,13 +89,11 @@ def mute_tv_smartthings(max_retries: int = 3, retry_delay: int = 3) -> bool:
             "Content-Type": "application/json",
         }
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
-        log(f"SmartThings mute attempt {attempt}: {resp.status_code} {resp.text!r}")
+        log(f"SmartThings {command} attempt {attempt}: {resp.status_code} {resp.text!r}")
 
-        # Success
         if resp.ok or resp.status_code in (200, 202):
             return True
 
-        # Token expired / invalid
         if resp.status_code == 401:
             log("401 from SmartThings; refreshing token and retrying…")
             tokens = _refresh_tokens(_load_tokens()["refresh_token"])
@@ -108,39 +101,59 @@ def mute_tv_smartthings(max_retries: int = 3, retry_delay: int = 3) -> bool:
             token = tokens["access_token"]
             continue
 
-        # Device not ready / busy
         if resp.status_code in (409, 503) and attempt < max_retries:
-            log(f"Device not ready (status {resp.status_code}). "
-                f"Waiting {retry_delay}s then retrying…")
+            log(f"Device not ready (status {resp.status_code}). Waiting {retry_delay}s then retrying…")
             time.sleep(retry_delay)
             continue
 
-        # Other errors: give up
         break
+    return False
 
+def mute_tv_smartthings() -> bool:
+    """Mute the Samsung TV via SmartThings API."""
+    return send_smartthings_command("audioMute", "mute")
+
+def toggle_mute_smartthings() -> bool:
+    """Toggle mute status on the Samsung TV via SmartThings API."""
+    token = _get_access_token()
+    url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/status"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            status = resp.json()
+            # Path to mute status: components.main.audioMute.mute.value
+            mute_state = status.get("components", {}).get("main", {}).get("audioMute", {}).get("mute", {}).get("value")
+            log(f"Current mute state: {mute_state}")
+            
+            new_command = "unmute" if mute_state == "muted" else "mute"
+            log(f"Toggling mute to: {new_command}")
+            return send_smartthings_command("audioMute", new_command)
+        else:
+            log(f"Failed to get TV status: {resp.status_code} {resp.text}")
+            # Fallback: just send mute if we can't get status
+            return send_smartthings_command("audioMute", "mute")
+    except Exception as e:
+        log(f"Error toggling mute: {e}")
+        return False
+
+def get_mute_status_smartthings() -> bool:
+    """Get current mute status from SmartThings. Returns True if muted."""
+    token = _get_access_token()
+    url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/status"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            status = resp.json()
+            mute_state = status.get("components", {}).get("main", {}).get("audioMute", {}).get("mute", {}).get("value")
+            return mute_state == "muted"
+    except Exception as e:
+        log(f"Error getting mute status: {e}")
     return False
 
 # ---------- Roku helpers ----------
-
-def is_yttv_running() -> bool:
-    """Check if YouTube TV is currently the active Roku app."""
-    try:
-        log("Checking current active app…")
-        resp = requests.get(f"http://{ROKU_IP}:8060/query/active-app", timeout=5)
-        if resp.status_code == 200:
-            content = resp.text
-            log(f"Active app response: {content}")
-            if f'id="{YOUTUBE_TV_APP_ID}"' in content:
-                log("YouTube TV is already running.")
-                return True
-            log("YouTube TV is not currently active.")
-            return False
-        else:
-            log(f"Failed to query active app: {resp.status_code}")
-            return False
-    except requests.RequestException as e:
-        log(f"Failed to check active app: {e}")
-        return False
 
 def launch_roku_app(app_id: str, label: str) -> bool:
     """Launch a Roku app by ID."""
@@ -158,53 +171,20 @@ def launch_roku_app(app_id: str, label: str) -> bool:
 def register_routes(app):
     @app.route("/")
     def home():
-        return render_template("index.html")
+        is_muted = get_mute_status_smartthings()
+        return render_template("index.html", is_muted=is_muted)
 
-    @app.route("/start-yttv", methods=["POST"])
-    def launch_yttv():
-        log("Web request received to start YouTube TV")
-
-        # Check if YTTV is already running
-        if is_yttv_running():
-            log("YouTube TV is already active. Skipping launch to avoid overlay confusion.")
-            return render_template("message.html", 
-                                   title="Already Running",
-                                   message="YouTube TV is already running. No action needed.",
-                                   refresh_time=2,
-                                   is_error=False)
-
-        if not launch_roku_app(YOUTUBE_TV_APP_ID, "YouTube TV"):
+    @app.route("/toggle-mute", methods=["POST"])
+    def toggle_mute():
+        log("Web request received to toggle mute")
+        if toggle_mute_smartthings():
+            return redirect(url_for('home'))
+        else:
             return render_template("message.html", 
                                    title="Error",
-                                   message="Error launching YouTube TV. Check the logs for details.",
+                                   message="Failed to toggle mute via SmartThings.",
                                    refresh_time=3,
                                    is_error=True)
-
-        # Give YTTV time to load, then dismiss overlay with Roku keypresses
-        time.sleep(10)
-        try:
-            log("Sending 'Up' command to dismiss overlay…")
-            requests.post(f"http://{ROKU_IP}:8060/keypress/Up", timeout=5)
-            time.sleep(6)  # Samsung TV OS hangs a bit
-            log("Sending 'Select' command to confirm overlay dismissal…")
-            requests.post(f"http://{ROKU_IP}:8060/keypress/Select", timeout=5)
-            log("Overlay dismissed. CNN should be full screen.")
-        except requests.RequestException as e:
-            log(f"Failed to send overlay dismissal commands: {e}")
-
-        # Mute TV via SmartThings
-        time.sleep(1)
-        log("Muting TV via SmartThings (YTTV)…")
-        if mute_tv_smartthings():
-            log("TV muted successfully (YTTV).")
-        else:
-            log("Failed to mute TV via SmartThings (YTTV).")
-
-        return render_template("message.html", 
-                               title="Done!",
-                               message="YouTube TV launched successfully.",
-                               refresh_time=2,
-                               is_error=False)
 
     @app.route("/start-cnn", methods=["POST"])
     def launch_cnn():

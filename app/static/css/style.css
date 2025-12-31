@@ -100,10 +100,24 @@ h1 {
     background-color: var(--secondary-hover);
 }
 
+.btn-mute {
+    background-color: #444444;
+}
+
+.btn-mute:hover {
+    background-color: #555555;
+}
+
 .btn-logo {
     height: 1.5em;
     width: auto;
     margin-right: 0.75rem;
+    vertical-align: middle;
+}
+
+.btn-icon {
+    margin-right: 0.75rem;
+    font-size: 1.5rem;
     vertical-align: middle;
 }
 
