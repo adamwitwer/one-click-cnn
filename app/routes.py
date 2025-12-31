@@ -140,18 +140,46 @@ def toggle_mute_smartthings() -> bool:
 
 def get_mute_status_smartthings() -> bool:
     """Get current mute status from SmartThings. Returns True if muted."""
-    token = _get_access_token()
-    url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/status"
-    headers = {"Authorization": f"Bearer {token}"}
     try:
+        token = _get_access_token()
+        url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/status"
+        headers = {"Authorization": f"Bearer {token}"}
+        
         resp = requests.get(url, headers=headers, timeout=10)
+        
+        # Debug logging to file
+        with open("debug_log.txt", "w") as f:
+            f.write(f"Status Code: {resp.status_code}\n")
+            f.write(f"Response: {resp.text}\n")
+            
         if resp.status_code == 200:
             status = resp.json()
-            mute_state = status.get("components", {}).get("main", {}).get("audioMute", {}).get("mute", {}).get("value")
+            # Try to find the mute status safely
+            main = status.get("components", {}).get("main", {})
+            audio_mute = main.get("audioMute", {})
+            mute_attr = audio_mute.get("mute", {})
+            mute_state = mute_attr.get("value")
+            
+            log(f"Mute state from API: {mute_state}")
             return mute_state == "muted"
+            
     except Exception as e:
         log(f"Error getting mute status: {e}")
+        try:
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Error: {e}\n")
+        except:
+            pass
+            
     return False
+
+def refresh_smartthings_status():
+    """Send a refresh command to the TV to update its status."""
+    try:
+        log("Sending refresh command to SmartThings...")
+        send_smartthings_command("refresh", "refresh")
+    except Exception as e:
+        log(f"Error sending refresh: {e}")
 
 # ---------- Roku helpers ----------
 
@@ -171,6 +199,11 @@ def launch_roku_app(app_id: str, label: str) -> bool:
 def register_routes(app):
     @app.route("/")
     def home():
+        # Force a refresh to get the latest mute status
+        refresh_smartthings_status()
+        # Wait briefly for the refresh to propagate
+        time.sleep(1.5)
+        
         is_muted = get_mute_status_smartthings()
         return render_template("index.html", is_muted=is_muted)
 
