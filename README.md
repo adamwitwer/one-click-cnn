@@ -55,6 +55,24 @@ A modern, Flask-based web application that simplifies your TV experience. Launch
 
     *Note: SmartThings tokens are managed automatically after the first run.*
 
+## 🔐 SmartThings OAuth Helper
+
+If you need to (re)authorize SmartThings on a new machine, use the helper script:
+
+```bash
+python3 scripts/smartthings_auth.py
+```
+
+This prints an authorization URL. Open it in your browser, log in, and approve the request. The script will save tokens to `~/.smartthings_tokens.json`.
+
+Notes:
+- Ensure the redirect URI you registered in SmartThings matches the script (default: `http://localhost:8000/callback`).
+- To override, use `SMARTTHINGS_REDIRECT_URI` in `.env` or pass `--redirect-uri`.
+- If you can’t run a local callback, use manual mode:
+  ```bash
+  python3 scripts/smartthings_auth.py --manual
+  ```
+
 ## 📱 Usage
 
 1.  **Start the application:**
@@ -64,6 +82,10 @@ A modern, Flask-based web application that simplifies your TV experience. Launch
     To use a different port:
     ```bash
     PORT=5050 ./run.sh
+    ```
+    To (re)authorize SmartThings:
+    ```bash
+    ./run.sh --auth
     ```
 
 2.  **Access the interface:**

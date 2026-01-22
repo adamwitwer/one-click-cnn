@@ -4,3 +4,4 @@ __pycache__/
 .env
 .DS_Store
 notes.txt
+debug_log.txt
