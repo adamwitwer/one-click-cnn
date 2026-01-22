@@ -4,22 +4,32 @@
 <h1>One-Touch CNN</h1>
 
 <div class="card">
-    <form action="/start-cnn" method="post" onsubmit="showLoading()">
+    <form id="startCnnForm" action="/start-cnn" method="post">
         <button type="submit" class="btn btn-secondary">
             <img src="{{ url_for('static', filename='img/cnn.svg') }}" alt="CNN" class="btn-logo">
             Start CNN App
         </button>
     </form>
 
+    <div id="muteFormWrapper" {% if tv_status == 'off' %}style="display: none;"{% endif %}>
     <form action="/toggle-mute" method="post">
-        <button type="submit" class="btn btn-mute">
-            {% if is_muted %}
-            <span class="btn-icon">🔊</span> Unmute
+        <button id="muteToggleBtn" type="submit" class="btn btn-mute">
+            {% if tv_status == 'muted' %}
+            <span id="muteIcon" class="btn-icon">🔊</span> <span id="muteLabel">Unmute</span>
             {% else %}
-            <span class="btn-icon">🔇</span> Mute
+            <span id="muteIcon" class="btn-icon">🔇</span> <span id="muteLabel">Mute</span>
             {% endif %}
         </button>
     </form>
+    </div>
+
+    <p id="tvOfflineHint" class="status-hint" {% if tv_status not in ['off', 'unavailable'] %}style="display: none;"{% endif %}>
+        {% if tv_status == 'unavailable' %}
+        SmartThings is not configured on this device.
+        {% else %}
+        TV appears to be off or unavailable.
+        {% endif %}
+    </p>
 </div>
 
 <div id="loadingOverlay" class="loading-overlay">
@@ -32,5 +42,82 @@
     function showLoading() {
         document.getElementById('loadingOverlay').style.display = 'flex';
     }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const form = document.getElementById('startCnnForm');
+        const muteWrapper = document.getElementById('muteFormWrapper');
+        const offlineHint = document.getElementById('tvOfflineHint');
+        if (!form) {
+            return;
+        }
+
+        form.addEventListener('submit', (event) => {
+            if (form.dataset.submitted === 'true') {
+                return;
+            }
+            event.preventDefault();
+            form.dataset.submitted = 'true';
+            showLoading();
+
+            // Allow the overlay to render before navigation starts.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    setTimeout(() => form.submit(), 50);
+                });
+            });
+        });
+
+        async function updateTvStatus() {
+            try {
+                const resp = await fetch('/tv-status?refresh=1', { cache: 'no-store' });
+                if (!resp.ok) {
+                    return;
+                }
+                const data = await resp.json();
+                if (!muteWrapper) {
+                    return;
+                }
+                if (data.status === 'unavailable') {
+                    muteWrapper.style.display = 'none';
+                    if (offlineHint) {
+                        offlineHint.textContent = 'SmartThings is not configured on this device.';
+                        offlineHint.style.display = 'block';
+                    }
+                    return;
+                }
+
+                if (data.status === 'off') {
+                    muteWrapper.style.display = 'none';
+                    if (offlineHint) {
+                        offlineHint.textContent = 'TV appears to be off or unavailable.';
+                        offlineHint.style.display = 'block';
+                    }
+                    return;
+                }
+
+                muteWrapper.style.display = 'block';
+                if (offlineHint) {
+                    offlineHint.style.display = 'none';
+                }
+                const label = document.getElementById('muteLabel');
+                const icon = document.getElementById('muteIcon');
+                if (!label || !icon) {
+                    return;
+                }
+                if (data.status === 'muted') {
+                    label.textContent = 'Unmute';
+                    icon.textContent = '🔊';
+                } else {
+                    label.textContent = 'Mute';
+                    icon.textContent = '🔇';
+                }
+            } catch (err) {
+                // Ignore transient network errors.
+            }
+        }
+
+        updateTvStatus();
+        setInterval(updateTvStatus, 15000);
+    });
 </script>
 {% endblock %}

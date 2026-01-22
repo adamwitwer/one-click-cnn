@@ -61,9 +61,34 @@ A modern, Flask-based web application that simplifies your TV experience. Launch
     ```bash
     ./run.sh
     ```
+    To use a different port:
+    ```bash
+    PORT=5050 ./run.sh
+    ```
 
 2.  **Access the interface:**
     Open your web browser and navigate to `http://localhost:5000` (or your server's IP address).
 
 3.  **Add to Home Screen:**
     For the best experience on iOS/Android, use "Add to Home Screen" to install it as a web app.
+
+## 🌐 Access Outside Your LAN (Tailscale)
+
+If you run this on a Raspberry Pi with Tailscale already installed, you can access the app securely from anywhere without opening ports.
+
+1.  **Start the app (binds to all interfaces):**
+    ```bash
+    ./run.sh
+    ```
+
+2.  **Find your Pi's Tailscale IP:**
+    ```bash
+    tailscale ip -4
+    ```
+
+3.  **Open the app from another device on your Tailscale network:**
+    ```
+    http://<tailscale-ip>:5000
+    ```
+
+*Tip: If you want a nicer URL, consider Tailscale's built-in `serve` feature or MagicDNS.*

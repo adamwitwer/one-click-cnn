@@ -2,11 +2,13 @@ import os
 import time
 import json
 import requests
-from flask import render_template, request, redirect, url_for
+from flask import render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
-# Load .env sitting next to this file
+# Load .env from repo root (fallback to app/.env if needed)
 BASE_DIR = os.path.dirname(__file__)
+ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # ---------- Roku config ----------
@@ -22,12 +24,17 @@ OAUTH_TOKEN_URL = "https://api.smartthings.com/oauth/token"
 API_BASE = "https://api.smartthings.com/v1"
 TOKEN_FILE = os.path.expanduser("~/.smartthings_tokens.json")
 
+def _smartthings_config_ok() -> bool:
+    return all([SMARTTHINGS_CLIENT_ID, SMARTTHINGS_CLIENT_SECRET, SMARTTHINGS_TV_DEVICE_ID])
+
 def log(msg: str) -> None:
     print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}", flush=True)
 
 # ---------- SmartThings token helpers ----------
 
 def _load_tokens() -> dict:
+    if not _smartthings_config_ok():
+        raise RuntimeError("SmartThings config missing")
     if not os.path.exists(TOKEN_FILE):
         raise RuntimeError(f"Token file not found: {TOKEN_FILE}")
     with open(TOKEN_FILE, "r") as f:
@@ -138,9 +145,11 @@ def toggle_mute_smartthings() -> bool:
         log(f"Error toggling mute: {e}")
         return False
 
-def get_mute_status_smartthings() -> bool:
-    """Get current mute status from SmartThings. Returns True if muted."""
+def get_tv_status() -> str:
+    """Get current TV status from SmartThings. Returns 'off', 'muted', 'unmuted', or 'unavailable'."""
     try:
+        if not _smartthings_config_ok():
+            return "unavailable"
         token = _get_access_token()
         url = f"{API_BASE}/devices/{SMARTTHINGS_TV_DEVICE_ID}/status"
         headers = {"Authorization": f"Bearer {token}"}
@@ -154,28 +163,41 @@ def get_mute_status_smartthings() -> bool:
             
         if resp.status_code == 200:
             status = resp.json()
-            # Try to find the mute status safely
             main = status.get("components", {}).get("main", {})
+            
+            # Check power status first
+            switch_state = main.get("switch", {}).get("switch", {}).get("value")
+            if switch_state != "on":
+                return "off"
+            
+            # Check mute status
             audio_mute = main.get("audioMute", {})
             mute_attr = audio_mute.get("mute", {})
             mute_state = mute_attr.get("value")
             
-            log(f"Mute state from API: {mute_state}")
-            return mute_state == "muted"
+            log(f"TV Status - Power: {switch_state}, Mute: {mute_state}")
+            return "muted" if mute_state == "muted" else "unmuted"
+            
+        # Handle known offline/error states
+        if resp.status_code in (409, 503):
+            log(f"TV appears to be offline (status {resp.status_code})")
+            return "off"
             
     except Exception as e:
-        log(f"Error getting mute status: {e}")
+        log(f"Error getting TV status: {e}")
         try:
             with open("debug_log.txt", "a") as f:
                 f.write(f"Error: {e}\n")
         except:
             pass
             
-    return False
+    return "off" # Default fallback (offline/error)
 
 def refresh_smartthings_status():
     """Send a refresh command to the TV to update its status."""
     try:
+        if not _smartthings_config_ok():
+            return
         log("Sending refresh command to SmartThings...")
         send_smartthings_command("refresh", "refresh")
     except Exception as e:
@@ -186,12 +208,30 @@ def refresh_smartthings_status():
 def launch_roku_app(app_id: str, label: str) -> bool:
     """Launch a Roku app by ID."""
     try:
-        log(f"Launching Roku app {label} (id={app_id})…")
-        resp = requests.post(f"http://{ROKU_IP}:8060/launch/{app_id}", timeout=5)
+        url = f"http://{ROKU_IP}:8060/launch/{app_id}"
+        log(f"Launching Roku app {label} (id={app_id}) at {url}…")
+        
+        # Debug log
+        with open("debug_log.txt", "a") as f:
+            f.write(f"Attempting to launch Roku app at {url}\n")
+            
+        resp = requests.post(url, timeout=5)
+        
+        with open("debug_log.txt", "a") as f:
+            f.write(f"Response: {resp.status_code}\n")
+            
         log(f"{label} launch response: {resp.status_code}")
         return resp.status_code in (200, 204)
     except requests.RequestException as e:
         log(f"Failed to launch {label}: {e}")
+        try:
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Error launching Roku: {e}\n")
+                # Check for proxy env vars
+                f.write(f"Env HTTP_PROXY: {os.environ.get('HTTP_PROXY')}\n")
+                f.write(f"Env HTTPS_PROXY: {os.environ.get('HTTPS_PROXY')}\n")
+        except:
+            pass
         return False
 
 # ---------- Flask routes ----------
@@ -204,8 +244,17 @@ def register_routes(app):
         # Wait briefly for the refresh to propagate
         time.sleep(1.5)
         
-        is_muted = get_mute_status_smartthings()
-        return render_template("index.html", is_muted=is_muted)
+        tv_status = get_tv_status()
+        return render_template("index.html", tv_status=tv_status)
+
+    @app.route("/tv-status")
+    def tv_status():
+        refresh = request.args.get("refresh", "1") == "1"
+        if refresh:
+            refresh_smartthings_status()
+            time.sleep(1.0)
+        status = get_tv_status()
+        return jsonify({"status": status})
 
     @app.route("/toggle-mute", methods=["POST"])
     def toggle_mute():

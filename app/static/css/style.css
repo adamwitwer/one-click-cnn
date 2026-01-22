@@ -153,6 +153,12 @@ footer {
     font-size: 0.9rem;
 }
 
+.status-hint {
+    margin-top: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
 @media (max-width: 480px) {
     .container {
         padding: 1rem;
