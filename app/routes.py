@@ -2,6 +2,7 @@ import os
 import time
 import json
 import requests
+import xml.etree.ElementTree as ET
 from flask import render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
@@ -234,6 +235,23 @@ def launch_roku_app(app_id: str, label: str) -> bool:
             pass
         return False
 
+def get_roku_active_app() -> dict:
+    """Return the active Roku app as {'id': str, 'name': str} or {} on failure."""
+    try:
+        url = f"http://{ROKU_IP}:8060/query/active-app"
+        resp = requests.get(url, timeout=3)
+        if resp.status_code != 200:
+            log(f"Roku active-app query failed: {resp.status_code}")
+            return {}
+        root = ET.fromstring(resp.text)
+        app = root.find("app")
+        if app is None:
+            return {}
+        return {"id": app.attrib.get("id", ""), "name": (app.text or "").strip()}
+    except Exception as e:
+        log(f"Failed to query Roku active app: {e}")
+        return {}
+
 # ---------- Flask routes ----------
 
 def register_routes(app):
@@ -245,7 +263,9 @@ def register_routes(app):
         time.sleep(1.5)
         
         tv_status = get_tv_status()
-        return render_template("index.html", tv_status=tv_status)
+        active_app = get_roku_active_app()
+        cnn_active = active_app.get("id") == CNN_APP_ID
+        return render_template("index.html", tv_status=tv_status, cnn_active=cnn_active)
 
     @app.route("/tv-status")
     def tv_status():
@@ -254,7 +274,9 @@ def register_routes(app):
             refresh_smartthings_status()
             time.sleep(1.0)
         status = get_tv_status()
-        return jsonify({"status": status})
+        active_app = get_roku_active_app()
+        cnn_active = active_app.get("id") == CNN_APP_ID
+        return jsonify({"status": status, "cnn_active": cnn_active})
 
     @app.route("/toggle-mute", methods=["POST"])
     def toggle_mute():

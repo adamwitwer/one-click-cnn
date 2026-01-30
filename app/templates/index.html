@@ -5,11 +5,19 @@
 
 <div class="card">
     <form id="startCnnForm" action="/start-cnn" method="post">
-        <button type="submit" class="btn btn-secondary">
+        <button id="startCnnBtn" type="submit" class="btn btn-secondary" {% if cnn_active %}disabled{% endif %}>
             <img src="{{ url_for('static', filename='img/cnn.svg') }}" alt="CNN" class="btn-logo">
-            Start CNN App
+            <span id="startCnnLabel">{% if cnn_active %}CNN is running{% else %}Start CNN App{% endif %}</span>
         </button>
     </form>
+
+    <div id="restartCnnWrapper" {% if not cnn_active %}style="display: none;"{% endif %}>
+        <form action="/start-cnn" method="post">
+            <button type="submit" class="btn btn-primary">
+                Restart CNN
+            </button>
+        </form>
+    </div>
 
     <div id="muteFormWrapper" {% if tv_status == 'off' %}style="display: none;"{% endif %}>
     <form action="/toggle-mute" method="post">
@@ -47,6 +55,9 @@
         const form = document.getElementById('startCnnForm');
         const muteWrapper = document.getElementById('muteFormWrapper');
         const offlineHint = document.getElementById('tvOfflineHint');
+        const startBtn = document.getElementById('startCnnBtn');
+        const startLabel = document.getElementById('startCnnLabel');
+        const restartWrapper = document.getElementById('restartCnnWrapper');
         if (!form) {
             return;
         }
@@ -83,33 +94,42 @@
                         offlineHint.textContent = 'SmartThings is not configured on this device.';
                         offlineHint.style.display = 'block';
                     }
-                    return;
-                }
-
-                if (data.status === 'off') {
+                } else if (data.status === 'off') {
                     muteWrapper.style.display = 'none';
                     if (offlineHint) {
                         offlineHint.textContent = 'TV appears to be off or unavailable.';
                         offlineHint.style.display = 'block';
                     }
-                    return;
+                } else {
+                    muteWrapper.style.display = 'block';
+                    if (offlineHint) {
+                        offlineHint.style.display = 'none';
+                    }
+                    const label = document.getElementById('muteLabel');
+                    const icon = document.getElementById('muteIcon');
+                    if (label && icon) {
+                        if (data.status === 'muted') {
+                            label.textContent = 'Unmute';
+                            icon.textContent = '🔊';
+                        } else {
+                            label.textContent = 'Mute';
+                            icon.textContent = '🔇';
+                        }
+                    }
                 }
 
-                muteWrapper.style.display = 'block';
-                if (offlineHint) {
-                    offlineHint.style.display = 'none';
+                if (startBtn && startLabel) {
+                    if (data.cnn_active) {
+                        startBtn.disabled = true;
+                        startLabel.textContent = 'CNN is running';
+                    } else {
+                        startBtn.disabled = false;
+                        startLabel.textContent = 'Start CNN App';
+                    }
                 }
-                const label = document.getElementById('muteLabel');
-                const icon = document.getElementById('muteIcon');
-                if (!label || !icon) {
-                    return;
-                }
-                if (data.status === 'muted') {
-                    label.textContent = 'Unmute';
-                    icon.textContent = '🔊';
-                } else {
-                    label.textContent = 'Mute';
-                    icon.textContent = '🔇';
+
+                if (restartWrapper) {
+                    restartWrapper.style.display = data.cnn_active ? 'block' : 'none';
                 }
             } catch (err) {
                 // Ignore transient network errors.

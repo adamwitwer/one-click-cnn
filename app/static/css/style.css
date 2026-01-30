@@ -84,6 +84,18 @@ h1 {
     transform: translateY(0);
 }
 
+.btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn[disabled]:hover {
+    transform: none;
+    box-shadow: none;
+}
+
 .btn-primary {
     background-color: var(--primary-color);
 }
