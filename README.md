@@ -48,6 +48,7 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
     # Flask runtime config
     FLASK_APP=app:create_app
     FLASK_RUN_HOST=0.0.0.0
+    FLASK_RUN_PORT=5050
 
     # Roku config
     ROKU_IP=192.168.1.100
@@ -84,9 +85,9 @@ Notes:
     ```bash
     ./run.sh
     ```
-    To use a different port:
+    To override the port:
     ```bash
-    PORT=5050 ./run.sh
+    PORT=8080 ./run.sh
     ```
     To (re)authorize SmartThings:
     ```bash
@@ -94,7 +95,7 @@ Notes:
     ```
 
 2.  **Access the interface:**
-    Open your web browser and navigate to `http://localhost:5000` (or your server's IP address). The default port is **5000** unless overridden with `PORT` or `FLASK_RUN_PORT`.
+    Open your web browser and navigate to `http://localhost:5050` (or your server's IP address). The default port is **5050** as set in `.env`.
 
 3.  **Add to Home Screen:**
     For the best experience on iOS/Android, use "Add to Home Screen" to install it as a web app.
@@ -115,7 +116,7 @@ If you run this on a Raspberry Pi (or any server) with Tailscale installed, you 
 
 3.  **Open the app from another device on your Tailscale network:**
     ```
-    http://<tailscale-ip>:5000
+    http://<tailscale-ip>:5050
     ```
 
 *Tip: For a nicer URL, consider Tailscale's built-in `serve` feature or MagicDNS.*
