@@ -100,6 +100,29 @@ Notes:
 3.  **Add to Home Screen:**
     For the best experience on iOS/Android, use "Add to Home Screen" to install it as a web app.
 
+## Scheduled Auto-Start (Cron)
+
+The `scripts/roku-cnn.py` script launches CNN and mutes the TV headlessly — no web server needed. It reads configuration from a `.env` file in the same directory (or the repo root).
+
+1.  **Copy the script and `.env` to your server:**
+    ```bash
+    cp scripts/roku-cnn.py /home/adam/.scripts/roku-cnn.py
+    cp .env /home/adam/.scripts/.env
+    ```
+
+2.  **Install dependencies in the server's venv:**
+    ```bash
+    /home/adam/.scripts/venv/bin/pip install requests python-dotenv
+    ```
+
+3.  **Add a cron entry** (e.g. daily at 7 PM):
+    ```bash
+    crontab -e
+    ```
+    ```
+    00 19 * * * /home/adam/.scripts/venv/bin/python /home/adam/.scripts/roku-cnn.py >> /home/adam/roku-cnn.log 2>&1
+    ```
+
 ## Remote Access via Tailscale
 
 If you run this on a Raspberry Pi (or any server) with Tailscale installed, you can access the app securely from anywhere without opening ports.
@@ -131,6 +154,7 @@ one-click-cnn/
 │   ├── static/              # CSS, icons, PWA manifest
 │   └── templates/           # Jinja2 templates (base, index, message)
 ├── scripts/
+│   ├── roku-cnn.py          # Headless cron script (launch + mute)
 │   └── smartthings_auth.py  # OAuth authorization helper
 ├── .env.example             # Environment variable template
 ├── requirements.txt         # Python dependencies
