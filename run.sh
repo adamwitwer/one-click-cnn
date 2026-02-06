@@ -7,5 +7,8 @@ if [[ "$1" == "--auth" ]]; then
   exit $?
 fi
 
-PORT="${PORT:-5000}"
-flask run --host=0.0.0.0 --port="$PORT"
+if [[ -n "$PORT" ]]; then
+  flask run --host=0.0.0.0 --port="$PORT"
+else
+  flask run --host=0.0.0.0
+fi

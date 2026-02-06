@@ -6,14 +6,13 @@ import xml.etree.ElementTree as ET
 from flask import render_template, request, redirect, url_for, jsonify
 from dotenv import load_dotenv
 
-# Load .env from repo root (fallback to app/.env if needed)
+# Load .env from repo root
 BASE_DIR = os.path.dirname(__file__)
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 load_dotenv(os.path.join(ROOT_DIR, ".env"))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # ---------- Roku config ----------
-ROKU_IP = "192.168.50.129"
+ROKU_IP = os.getenv("ROKU_IP", "192.168.50.129")
 CNN_APP_ID = "65978"  # from /query/apps
 
 # ---------- SmartThings config ----------
@@ -99,7 +98,7 @@ def send_smartthings_command(capability: str, command: str, arguments: list = No
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
         log(f"SmartThings {command} attempt {attempt}: {resp.status_code} {resp.text!r}")
 
-        if resp.ok or resp.status_code in (200, 202):
+        if resp.ok:
             return True
 
         if resp.status_code == 401:
@@ -156,12 +155,7 @@ def get_tv_status() -> str:
         headers = {"Authorization": f"Bearer {token}"}
         
         resp = requests.get(url, headers=headers, timeout=10)
-        
-        # Debug logging to file
-        with open("debug_log.txt", "w") as f:
-            f.write(f"Status Code: {resp.status_code}\n")
-            f.write(f"Response: {resp.text}\n")
-            
+
         if resp.status_code == 200:
             status = resp.json()
             main = status.get("components", {}).get("main", {})
@@ -186,12 +180,7 @@ def get_tv_status() -> str:
             
     except Exception as e:
         log(f"Error getting TV status: {e}")
-        try:
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Error: {e}\n")
-        except:
-            pass
-            
+
     return "off" # Default fallback (offline/error)
 
 def refresh_smartthings_status():
@@ -211,28 +200,11 @@ def launch_roku_app(app_id: str, label: str) -> bool:
     try:
         url = f"http://{ROKU_IP}:8060/launch/{app_id}"
         log(f"Launching Roku app {label} (id={app_id}) at {url}…")
-        
-        # Debug log
-        with open("debug_log.txt", "a") as f:
-            f.write(f"Attempting to launch Roku app at {url}\n")
-            
         resp = requests.post(url, timeout=5)
-        
-        with open("debug_log.txt", "a") as f:
-            f.write(f"Response: {resp.status_code}\n")
-            
         log(f"{label} launch response: {resp.status_code}")
         return resp.status_code in (200, 204)
     except requests.RequestException as e:
         log(f"Failed to launch {label}: {e}")
-        try:
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Error launching Roku: {e}\n")
-                # Check for proxy env vars
-                f.write(f"Env HTTP_PROXY: {os.environ.get('HTTP_PROXY')}\n")
-                f.write(f"Env HTTPS_PROXY: {os.environ.get('HTTPS_PROXY')}\n")
-        except:
-            pass
         return False
 
 def get_roku_active_app() -> dict:
@@ -257,11 +229,6 @@ def get_roku_active_app() -> dict:
 def register_routes(app):
     @app.route("/")
     def home():
-        # Force a refresh to get the latest mute status
-        refresh_smartthings_status()
-        # Wait briefly for the refresh to propagate
-        time.sleep(1.5)
-        
         tv_status = get_tv_status()
         active_app = get_roku_active_app()
         cnn_active = active_app.get("id") == CNN_APP_ID
@@ -272,7 +239,6 @@ def register_routes(app):
         refresh = request.args.get("refresh", "1") == "1"
         if refresh:
             refresh_smartthings_status()
-            time.sleep(1.0)
         status = get_tv_status()
         active_app = get_roku_active_app()
         cnn_active = active_app.get("id") == CNN_APP_ID
