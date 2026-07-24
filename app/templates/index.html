@@ -19,7 +19,7 @@
         </form>
     </div>
 
-    <div id="muteFormWrapper" {% if tv_status == 'off' %}style="display: none;"{% endif %}>
+    <div id="muteFormWrapper" {% if tv_status in ['off', 'auth', 'unavailable'] %}style="display: none;"{% endif %}>
     <form action="/toggle-mute" method="post">
         <button id="muteToggleBtn" type="submit" class="btn btn-mute">
             {% if tv_status == 'muted' %}
@@ -31,13 +31,17 @@
     </form>
     </div>
 
-    <p id="tvOfflineHint" class="status-hint" {% if tv_status not in ['off', 'unavailable'] %}style="display: none;"{% endif %}>
+    <p id="tvOfflineHint" class="status-hint" {% if tv_status not in ['off', 'auth', 'unavailable'] %}style="display: none;"{% endif %}>
         {% if tv_status == 'unavailable' %}
         SmartThings is not configured on this device.
+        {% elif tv_status == 'auth' %}
+        SmartThings needs re-authorization — run ./run.sh --auth
         {% else %}
         TV appears to be off or unavailable.
         {% endif %}
     </p>
+
+    <p id="launchHint" class="status-hint" style="display: none;"></p>
 </div>
 
 <div id="loadingOverlay" class="loading-overlay">
@@ -78,20 +82,48 @@
             });
         });
 
+        const launchHint = document.getElementById('launchHint');
+        // On the metered SmartThings backend each refresh=1 poll costs two API
+        // calls, so state is re-requested only occasionally. Local polling is
+        // free and always fresh. Neither polls while the page is hidden.
+        const IDLE_POLL_MS = {{ poll_ms|default(20000) }};
+        const ACTIVE_POLL_MS = 4000;
+        const THROTTLE_REFRESH = {{ 'true' if throttle_refresh|default(true) else 'false' }};
+        let pollCount = 0;
+        let timer = null;
+        let launchInProgress = false;
+
         async function updateTvStatus() {
             try {
-                const resp = await fetch('/tv-status?refresh=1', { cache: 'no-store' });
+                const refresh = (!THROTTLE_REFRESH || pollCount++ % 3 === 0) ? '1' : '0';
+                const resp = await fetch(`/tv-status?refresh=${refresh}`, { cache: 'no-store' });
                 if (!resp.ok) {
                     return;
                 }
                 const data = await resp.json();
+
+                const launch = data.launch || {};
+                launchInProgress = !!launch.in_progress;
+                if (launchHint) {
+                    if (launch.in_progress) {
+                        launchHint.textContent = 'Muting the TV…';
+                        launchHint.style.display = 'block';
+                    } else if (launch.muted === false) {
+                        launchHint.textContent = launch.detail || 'Could not confirm the TV muted.';
+                        launchHint.style.display = 'block';
+                    } else {
+                        launchHint.style.display = 'none';
+                    }
+                }
                 if (!muteWrapper) {
                     return;
                 }
-                if (data.status === 'unavailable') {
+                if (data.status === 'unavailable' || data.status === 'auth') {
                     muteWrapper.style.display = 'none';
                     if (offlineHint) {
-                        offlineHint.textContent = 'SmartThings is not configured on this device.';
+                        offlineHint.textContent = data.status === 'auth'
+                            ? 'SmartThings needs re-authorization — run ./run.sh --auth'
+                            : 'SmartThings is not configured on this device.';
                         offlineHint.style.display = 'block';
                     }
                 } else if (data.status === 'off') {
@@ -136,8 +168,21 @@
             }
         }
 
-        updateTvStatus();
-        setInterval(updateTvStatus, 15000);
+        async function poll() {
+            if (!document.hidden) {
+                await updateTvStatus();
+            }
+            clearTimeout(timer);
+            timer = setTimeout(poll, launchInProgress ? ACTIVE_POLL_MS : IDLE_POLL_MS);
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                poll();
+            }
+        });
+
+        poll();
     });
 </script>
 {% endblock %}

@@ -5,8 +5,8 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
 ## Features
 
 -   **One-Touch Launch**: Start the CNN app on your Roku device with a single button press.
--   **Mute Toggle**: Mute or unmute your Samsung TV via SmartThings.
--   **Auto-Mute on Launch**: Automatically mutes the TV after launching CNN.
+-   **Mute Toggle**: Mute or unmute your Samsung TV — locally over the LAN (free) or via SmartThings.
+-   **Auto-Mute on Launch**: Waits for CNN to actually load, then mutes and verifies it took effect.
 -   **Live Status**: Polls your TV for power and mute state, updating the UI automatically.
 -   **PWA Support**: Install as a home-screen web app on iOS/Android for a native feel.
 -   **Responsive Design**: Dark-mode interface optimized for mobile.
@@ -15,7 +15,8 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
 
 -   **Python 3.8+**
 -   **Roku Device**: TV or Streaming Stick on your local network.
--   **Samsung TV** (Optional): For mute/unmute functionality via SmartThings.
+-   **Samsung TV** (Optional): For mute/unmute. Controlled locally over the LAN by default —
+    no account or cloud API needed.
 
 ## Installation
 
@@ -53,13 +54,19 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
     # Roku config
     ROKU_IP=192.168.1.100
 
-    # SmartThings Configuration (Optional - for TV mute control)
+    # Mute backend: "local" (free, direct over the LAN) or "smartthings" (cloud)
+    TV_BACKEND=local
+    TV_IP=            # blank = autodiscover on this subnet
+
+    # SmartThings Configuration (only for TV_BACKEND=smartthings)
     SMARTTHINGS_CLIENT_ID=your_client_id
     SMARTTHINGS_CLIENT_SECRET=your_client_secret
     SMARTTHINGS_TV_DEVICE_ID=your_device_id
     ```
 
-    > **Note:** Find your Roku IP in Roku Settings > Network. SmartThings tokens are managed automatically after initial authorization.
+    > **Note:** Find your Roku IP in Roku Settings > Network. See
+    > [Avoiding the SmartThings API fee](#avoiding-the-smartthings-api-fee-local-backend) for the
+    > one-time TV pairing that `TV_BACKEND=local` needs.
 
 ## SmartThings OAuth Setup
 
@@ -79,6 +86,35 @@ Notes:
   python3 scripts/smartthings_auth.py --manual
   ```
 
+> **Token lifetime:** SmartThings refresh tokens are single-use and expire after roughly 30 days
+> of inactivity. The app rotates them automatically whenever it talks to the API, but if the app
+> sits unused for a month you'll need to re-authorize. The UI says so explicitly
+> ("SmartThings needs re-authorization") rather than reporting the TV as off.
+>
+> Run only **one** host against a given set of tokens. Because each refresh invalidates the
+> previous refresh token, a laptop and a Pi sharing `~/.smartthings_tokens.json` credentials will
+> knock each other offline.
+
+## Troubleshooting
+
+**CNN launches but the TV doesn't mute.** Both backends wait for CNN to actually reach the
+foreground (polling Roku's `/query/active-app`) rather than sleeping a fixed guess, then mute and
+read the state back to confirm. If it can't be confirmed the home screen says so instead of
+claiming success — the old code reported "launched successfully" either way, which is what made
+this fail silently.
+
+- On `local`: check `./run.sh --pair --check`. If **Paired: no**, re-run `./run.sh --pair`. If the
+  TV was replaced or changed IP, clear `TV_IP` in `.env` to let it rediscover.
+- On `smartthings`: an HTTP 200 there means "accepted", not "the TV did it", so the app retries up
+  to four times with backoff. Look for `Mute verification attempt` in the log.
+
+**Everything reports "TV appears to be off".** Usually the TV genuinely is in standby. On
+`smartthings`, if dead tokens are the cause instead you'll see the re-authorization message — run
+`./run.sh --auth`.
+
+**The TV mutes and immediately unmutes.** Only possible with `TV_MUTE_READBACK=off`, where mute is
+a blind toggle. Set it back to `auto` if your TV reports state reliably.
+
 ## Usage
 
 1.  **Start the application:**
@@ -93,6 +129,10 @@ Notes:
     ```bash
     ./run.sh --auth
     ```
+    To pair with the TV for local (free) mute control:
+    ```bash
+    ./run.sh --pair
+    ```
 
 2.  **Access the interface:**
     Open your web browser and navigate to `http://localhost:5050` (or your server's IP address). The default port is **5050** as set in `.env`.
@@ -104,15 +144,22 @@ Notes:
 
 The `scripts/roku-cnn.py` script launches CNN and mutes the TV headlessly — no web server needed. It reads configuration from a `.env` file in the same directory (or the repo root).
 
-1.  **Copy the script and `.env` to your server:**
+1.  **Copy the script, its TV helper, and `.env` to your server:**
     ```bash
     cp scripts/roku-cnn.py /home/adam/.scripts/roku-cnn.py
-    cp .env /home/adam/.scripts/.env
+    cp app/tv_local.py     /home/adam/.scripts/tv_local.py
+    cp .env                /home/adam/.scripts/.env
     ```
+    `tv_local.py` is only needed for `TV_BACKEND=local`, but copying it always keeps the two
+    deployments identical. The script finds it either beside itself or in the repo's `app/`.
 
 2.  **Install dependencies in the server's venv:**
     ```bash
-    /home/adam/.scripts/venv/bin/pip install requests python-dotenv
+    /home/adam/.scripts/venv/bin/pip install requests python-dotenv samsungtvws
+    ```
+    Pair the Pi with the TV once (it needs its own token — the prompt appears on the TV):
+    ```bash
+    cd /path/to/repo && ./run.sh --pair
     ```
 
 3.  **Add a cron entry** (e.g. daily at 7 PM):
@@ -144,6 +191,57 @@ If you run this on a Raspberry Pi (or any server) with Tailscale installed, you 
 
 *Tip: For a nicer URL, consider Tailscale's built-in `serve` feature or MagicDNS.*
 
+## Avoiding the SmartThings API fee (local backend)
+
+Samsung is moving the SmartThings API to paid tiers in October 2026 (free through September 2026);
+personal use is expected to cost **$4.99/month**. SmartThings is only needed for the mute — Roku
+launching is local and unmetered — so the app can talk to the TV directly instead.
+
+Set `TV_BACKEND` in `.env`:
+
+| Value | Mute path | Cost |
+| --- | --- | --- |
+| `local` | Tizen websocket + UPnP, direct over the LAN | free |
+| `smartthings` | Samsung cloud API | paid from Oct 2026 |
+
+### Switching to `local`
+
+1. Turn the TV on, then run the pairing helper **while standing in front of it**:
+   ```bash
+   ./run.sh --pair
+   ```
+   The TV shows an "Allow this device to connect?" prompt — accept it with the remote. The token
+   is saved to `~/.samsungtv_token.txt` and is never needed again.
+
+2. Set `TV_BACKEND=local` in `.env` and restart the app.
+
+`./run.sh --pair --check` reports address, power, pairing and readback status without changing
+anything.
+
+### How the local backend works
+
+- **Control:** `KEY_MUTE` over the Tizen websocket on port 8002.
+- **Readback:** UPnP `RenderingControl` `GetMute` on port 9197, used to verify the mute landed.
+  `SetMute` is *not* used — a UN50TU690TFXZA answers it with UPnP error 501 ("Action Failed")
+  outside an active DLNA session, so control goes through the websocket instead.
+- **Power:** the Tizen info endpoint on port 8001 reports `PowerState`.
+
+Because `KEY_MUTE` toggles rather than sets, the app reads the current state first and only sends
+the key if the TV isn't already where it should be — so a retry can't undo a mute that worked.
+
+If your TV reports mute state unreliably, set `TV_MUTE_READBACK=off`; mute then becomes an
+unverified toggle (and launching while already muted would unmute).
+
+**TV address:** leave `TV_IP` blank to autodiscover on startup (a ~6s subnet scan, cached for the
+life of the process). Setting `TV_IP` explicitly — ideally alongside a DHCP reservation — skips it.
+
+### Polling
+
+Neither backend polls while the page is hidden. On `local`, status is read every 10s and is always
+fresh — the calls are free and answer in well under a second. On `smartthings`, polling drops to
+20s and only forces a device refresh on one poll in three (roughly 80 API calls per hour of active
+screen time); raise `poll_ms` in `app/routes.py` if the published limits turn out to be tight.
+
 ## Project Structure
 
 ```
@@ -151,10 +249,12 @@ one-click-cnn/
 ├── app/
 │   ├── __init__.py          # Flask app factory
 │   ├── routes.py            # All routes and device control logic
+│   ├── tv_local.py          # Local TV control (websocket mute + UPnP readback)
 │   ├── static/              # CSS, icons, PWA manifest
 │   └── templates/           # Jinja2 templates (base, index, message)
 ├── scripts/
 │   ├── roku-cnn.py          # Headless cron script (launch + mute)
+│   ├── pair-tv.py           # One-time local TV pairing helper
 │   └── smartthings_auth.py  # OAuth authorization helper
 ├── .env.example             # Environment variable template
 ├── requirements.txt         # Python dependencies

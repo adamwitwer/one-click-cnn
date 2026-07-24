@@ -7,6 +7,12 @@ if [[ "$1" == "--auth" ]]; then
   exit $?
 fi
 
+if [[ "$1" == "--pair" ]]; then
+  shift
+  python3 scripts/pair-tv.py "$@"
+  exit $?
+fi
+
 if [[ -n "$PORT" ]]; then
   flask run --host=0.0.0.0 --port="$PORT"
 else
