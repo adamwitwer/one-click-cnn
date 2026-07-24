@@ -265,10 +265,71 @@ def mute_tv():
     return mute_tv_smartthings()
 
 
+def check():
+    """Verify this deployment can do its job, without launching or muting.
+
+    Useful right after deploying: cron only runs once a day, and a silent
+    misconfiguration would otherwise surface as a missed mute that evening.
+    """
+    ok = True
+    print(f"Script dir:   {os.path.abspath(BASE_DIR)}")
+    print(f"Backend:      {TV_BACKEND}")
+
+    print(f"Roku:         {ROKU_IP}", end="  ")
+    active = get_active_app_id()
+    if active:
+        print(f"reachable (active app id: {active})")
+    else:
+        print("UNREACHABLE")
+        ok = False
+
+    if TV_BACKEND == "local":
+        if tv_local is None:
+            print("tv_local.py:  NOT FOUND — copy app/tv_local.py next to this script")
+            return False
+        print(f"tv_local.py:  {tv_local.__file__}")
+
+        ip = tv_local.tv_ip()
+        if not ip:
+            print("TV:           NOT FOUND — set TV_IP in .env, or check the TV is on")
+            return False
+        print(f"TV:           {ip}  (power: {tv_local.get_power()})")
+
+        paired = tv_local.paired()
+        print(f"Paired:       {'yes' if paired else 'NO — run ./run.sh --pair'} "
+              f"({tv_local.token_file()})")
+        ok = ok and paired
+
+        mute = tv_local.get_mute()
+        print(f"Mute:         {'unreadable' if mute is None else mute}")
+    else:
+        missing = [n for n, v in (("SMARTTHINGS_CLIENT_ID", SMARTTHINGS_CLIENT_ID),
+                                  ("SMARTTHINGS_CLIENT_SECRET", SMARTTHINGS_CLIENT_SECRET),
+                                  ("SMARTTHINGS_TV_DEVICE_ID", SMARTTHINGS_TV_DEVICE_ID))
+                   if not v]
+        if missing:
+            print(f"SmartThings:  missing {', '.join(missing)}")
+            return False
+        print(f"Token file:   {TOKEN_FILE} "
+              f"({'present' if os.path.exists(TOKEN_FILE) else 'MISSING'})")
+        try:
+            _get_access_token()
+            print("SmartThings:  token OK")
+        except Exception as e:
+            print(f"SmartThings:  {e}")
+            ok = False
+
+    print("\n" + ("✓ Ready." if ok else "✗ Not ready — see above."))
+    return ok
+
+
 def main():
+    if "--check" in sys.argv:
+        sys.exit(0 if check() else 1)
+
     log("CNN auto-start script began.")
     if not launch_cnn_app():
-        return
+        sys.exit(1)
 
     if wait_for_cnn():
         log("CNN is in the foreground.")

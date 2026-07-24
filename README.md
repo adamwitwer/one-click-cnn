@@ -162,7 +162,12 @@ The `scripts/roku-cnn.py` script launches CNN and mutes the TV headlessly — no
     cd /path/to/repo && ./run.sh --pair
     ```
 
-3.  **Add a cron entry** (e.g. daily at 7 PM):
+3.  **Verify the deployment** (checks Roku, TV, and pairing without launching or muting):
+    ```bash
+    /home/adam/.scripts/venv/bin/python /home/adam/.scripts/roku-cnn.py --check
+    ```
+
+4.  **Add a cron entry** (e.g. daily at 7 PM):
     ```bash
     crontab -e
     ```
