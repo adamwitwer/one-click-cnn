@@ -275,6 +275,11 @@ one-click-cnn/
 │   ├── roku-cnn.py          # Headless cron script (launch + mute)
 │   ├── pair-tv.py           # One-time local TV pairing helper
 │   └── smartthings_auth.py  # OAuth authorization helper
+├── tests/
+│   ├── run.py               # Test runner (no hardware needed)
+│   ├── fakes.py             # Shared test doubles
+│   ├── test_local_backend.py
+│   └── test_smartthings_backend.py
 ├── .env.example             # Environment variable template
 ├── AGENTS.md                # Notes for developing on this repo
 ├── requirements.txt         # Python dependencies
@@ -283,6 +288,11 @@ one-click-cnn/
 
 ## Development
 
-See [AGENTS.md](AGENTS.md) for architecture notes, the device quirks behind the current design
-(including approaches that look right but don't work on this hardware), and how to test without
-touching real hardware.
+Run the tests — no hardware, network, or credentials required:
+
+```bash
+./venv/bin/python tests/run.py
+```
+
+See [AGENTS.md](AGENTS.md) for architecture notes and the device quirks behind the current design,
+including approaches that look right but don't work on this hardware.

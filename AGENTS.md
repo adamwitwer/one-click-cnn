@@ -15,8 +15,13 @@ Always use the venv's interpreter — a bare `python3` will fail with `ModuleNot
 ./venv/bin/python scripts/roku-cnn.py --check   # verify a cron deployment
 ```
 
-There is no test runner and no linter configured. Verify changes by driving the real endpoints
-with Flask's test client, and against real hardware where the device behavior is the point.
+Run the tests before and after any change to the mute or launch paths:
+
+```bash
+./venv/bin/python tests/run.py
+```
+
+No linter is configured.
 
 ## Architecture
 
@@ -77,18 +82,34 @@ UN50TU690TFXZA). They are the reasons the code looks the way it does.
 - **Local calls are free; cloud calls are metered.** Polling cadence is backend-aware (`poll_ms`
   in `routes.py`). Don't add unconditional polling to the SmartThings path.
 
-## Testing without hardware
+## Tests
 
-Both backends can be exercised by monkeypatching. For `routes.py`, replace `routes.requests` with
-a fake exposing `post`, `get`, and `RequestException`, and point `routes.TOKEN_FILE` at a temp
-file. For `tv_local`, replace `send_key`, `get_mute`, and `get_power`.
+```
+tests/run.py                        runner — runs each suite in its own process
+tests/fakes.py                      shared doubles (FakeRoku, fake requests, launch waiter)
+tests/test_local_backend.py         toggle semantics, verification, launch flow
+tests/test_smartthings_backend.py   async commands, retries, token failures
+```
 
-Two gotchas learned the hard way:
+No hardware or network is touched: Roku and SmartThings calls go through a fake `requests`, and
+`tv_local`'s `send_key`/`get_mute`/`get_power` are replaced. The local suite additionally asserts
+that *no* SmartThings URL is ever requested. `TV_IP` is set to `192.0.2.1` (TEST-NET-1) so a
+missed patch fails fast instead of reaching a real device.
 
-- Patching `time.sleep` to speed up tests patches the *shared* module, so a test's own wait loops
-  become no-ops too. Capture `real_sleep = time.sleep` before patching.
-- `/start-cnn` returns before the mute finishes. Poll `routes._launch_state["in_progress"]` under
-  `routes._launch_lock` instead of asserting immediately after the POST.
+Each suite runs in its own process because `TV_BACKEND` is resolved when `app.routes` is imported.
+`run.py` also strips `TV_*` from the environment so a developer's `.env` can't steer results.
+
+The suites are worth extending rather than replacing — they encode the specific regressions this
+app has already suffered. Verified by mutation: removing the "already muted" guard, or returning
+success from an unverified mute, each makes a named check fail.
+
+Two gotchas when adding tests:
+
+- Patching `time.sleep` to speed up device waits patches the *shared* module, so your own wait
+  loops become no-ops too. Capture `real_sleep = time.sleep` before patching (see
+  `fakes.wait_for_launch`).
+- `/start-cnn` returns before the mute finishes. Wait on `routes._launch_state["in_progress"]`
+  under `routes._launch_lock` instead of asserting straight after the POST.
 
 ## Hardware changes
 
