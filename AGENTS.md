@@ -73,7 +73,14 @@ UN50TU690TFXZA). They are the reasons the code looks the way it does.
   module-level constants, for anything env-derived. `TV_IP` is likewise read per call.
 - **Long device work goes off the request thread.** Verified muting outlasts what a browser will
   hold a POST open for. `/start-cnn` starts a background worker and returns immediately; the page
-  polls `/tv-status`, which reports `launch.in_progress` / `launch.muted` / `launch.detail`.
+  posts via `fetch` (header `X-Requested-With: fetch` → JSON ack; a no-JS form post still gets
+  `message.html`) and keeps one spinner up while polling `/tv-status`, which reports
+  `launch.in_progress` / `launch.muted` / `launch.detail`.
+- **The TV's reported state wins over the worker's return value in the UI.** `ensure_muted()` can
+  return `False` on a mute that actually landed — readback times out while the TV is still powering
+  on. So the home page shows the mute-failed banner only when `launch.muted === false` *and*
+  `status !== 'muted'`. Don't surface `launch.detail` unconditionally; it resurrects the false
+  "Could not reach the TV to mute it" that appeared while the TV was, in fact, muted.
 - **Distinguish failure modes in user-facing text.** Dead OAuth tokens must not render as "TV
   appears to be off" — that masked a re-auth requirement as a hardware problem for weeks.
 - **Guard token refresh with `_TOKEN_LOCK`.** SmartThings refresh tokens are single-use; two

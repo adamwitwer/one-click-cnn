@@ -442,8 +442,14 @@ def register_routes(app):
     @app.route("/start-cnn", methods=["POST"])
     def launch_cnn():
         log("Web request received to start CNN Roku app")
+        # The home page posts here via fetch and keeps a single spinner up while
+        # it polls /tv-status for the outcome, so it just needs a JSON ack. A
+        # plain form post (no JS) still gets the interstitial page.
+        wants_json = request.headers.get("X-Requested-With") == "fetch"
 
         if not launch_roku_app(CNN_APP_ID, "CNN"):
+            if wants_json:
+                return jsonify({"ok": False, "error": "Could not launch the CNN app."}), 502
             return render_template("message.html",
                                    title="Error",
                                    message="Error launching CNN app. Check the logs for details.",
@@ -455,6 +461,8 @@ def register_routes(app):
         # in the background; the home page polls /tv-status for the outcome.
         start_launch_worker()
 
+        if wants_json:
+            return jsonify({"ok": True})
         return render_template("message.html",
                                title="Done!",
                                message="CNN app launched. Muting the TV…",

@@ -46,43 +46,52 @@
 
 <div id="loadingOverlay" class="loading-overlay">
     <div class="spinner"></div>
-    <h2>Processing...</h2>
-    <p>Please wait while we launch the app.</p>
+    <h2 id="overlayTitle">Launching CNN…</h2>
 </div>
 
 <script>
-    function showLoading() {
-        document.getElementById('loadingOverlay').style.display = 'flex';
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
-        const form = document.getElementById('startCnnForm');
+        const startForms = document.querySelectorAll('form[action="/start-cnn"]');
         const muteWrapper = document.getElementById('muteFormWrapper');
         const offlineHint = document.getElementById('tvOfflineHint');
         const startBtn = document.getElementById('startCnnBtn');
         const startLabel = document.getElementById('startCnnLabel');
         const restartWrapper = document.getElementById('restartCnnWrapper');
-        if (!form) {
+        const overlay = document.getElementById('loadingOverlay');
+        const launchHint = document.getElementById('launchHint');
+        if (!startForms.length) {
             return;
         }
 
-        form.addEventListener('submit', (event) => {
-            if (form.dataset.submitted === 'true') {
-                return;
-            }
-            event.preventDefault();
-            form.dataset.submitted = 'true';
-            showLoading();
+        function showOverlay() {
+            overlay.style.display = 'flex';
+        }
+        function hideOverlay() {
+            overlay.style.display = 'none';
+        }
 
-            // Allow the overlay to render before navigation starts.
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    setTimeout(() => form.submit(), 50);
-                });
+        // Launch and mute run as one routine behind a single spinner. Posting
+        // via fetch (rather than navigating) keeps the overlay up for the whole
+        // thing, so nothing flashes underneath and there's no interstitial page.
+        startForms.forEach((form) => {
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                if (launchHint) launchHint.style.display = 'none';
+                launchInProgress = true;
+                showOverlay();
+                try {
+                    await fetch('/start-cnn', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'fetch' },
+                    });
+                } catch (err) {
+                    // The background worker is the source of truth; polling below
+                    // will report the outcome even if this POST's response is lost.
+                }
+                poll();
             });
         });
 
-        const launchHint = document.getElementById('launchHint');
         // On the metered SmartThings backend each refresh=1 poll costs two API
         // calls, so state is re-requested only occasionally. Local polling is
         // free and always fresh. Neither polls while the page is hidden.
@@ -104,15 +113,23 @@
 
                 const launch = data.launch || {};
                 launchInProgress = !!launch.in_progress;
-                if (launchHint) {
-                    if (launch.in_progress) {
-                        launchHint.textContent = 'Muting the TV…';
-                        launchHint.style.display = 'block';
-                    } else if (launch.muted === false) {
-                        launchHint.textContent = launch.detail || 'Could not confirm the TV muted.';
-                        launchHint.style.display = 'block';
-                    } else {
-                        launchHint.style.display = 'none';
+                if (launchInProgress) {
+                    // Routine still running: keep the single spinner up.
+                    showOverlay();
+                } else if (overlay.style.display === 'flex') {
+                    // Routine just finished — take the spinner down and report
+                    // only a *genuine* failure. The TV's own reported state wins
+                    // over the worker's return value: readback can time out while
+                    // the TV is still powering on, so a mute that actually landed
+                    // must not surface as an error.
+                    hideOverlay();
+                    if (launchHint) {
+                        if (launch.muted === false && data.status !== 'muted') {
+                            launchHint.textContent = launch.detail || 'Could not confirm the TV muted.';
+                            launchHint.style.display = 'block';
+                        } else {
+                            launchHint.style.display = 'none';
+                        }
                     }
                 }
                 if (!muteWrapper) {
