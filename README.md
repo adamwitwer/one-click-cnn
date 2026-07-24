@@ -2,6 +2,8 @@
 
 A Flask-based web application that simplifies your TV experience. Launch the CNN app on your Roku and toggle your TV's mute status—all with a single tap from your smartphone.
 
+Everything runs on your own network: the Roku is controlled over its local HTTP API, and the TV over its own LAN interfaces. No cloud account or paid API is required.
+
 ## Features
 
 -   **One-Touch Launch**: Start the CNN app on your Roku device with a single button press.
@@ -15,8 +17,9 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
 
 -   **Python 3.8+**
 -   **Roku Device**: TV or Streaming Stick on your local network.
--   **Samsung TV** (Optional): For mute/unmute. Controlled locally over the LAN by default —
-    no account or cloud API needed.
+-   **Samsung TV** (Optional): For mute/unmute. Controlled locally over the LAN by default — no
+    account or cloud API needed, but it must be on the same network and paired once via
+    `./run.sh --pair`.
 
 ## Installation
 
@@ -68,12 +71,15 @@ A Flask-based web application that simplifies your TV experience. Launch the CNN
     > [Avoiding the SmartThings API fee](#avoiding-the-smartthings-api-fee-local-backend) for the
     > one-time TV pairing that `TV_BACKEND=local` needs.
 
-## SmartThings OAuth Setup
+## SmartThings OAuth Setup (optional fallback)
 
-If you need to (re)authorize SmartThings on a new machine, use the helper script:
+**Only needed for `TV_BACKEND=smartthings`.** The default `local` backend needs no account, no
+OAuth, and no cloud — see [Switching to `local`](#switching-to-local).
+
+To (re)authorize SmartThings on a machine:
 
 ```bash
-python3 scripts/smartthings_auth.py
+./run.sh --auth
 ```
 
 This prints an authorization URL. Open it in your browser, log in, and approve the request. The script saves tokens to `~/.smartthings_tokens.json`.
@@ -83,8 +89,9 @@ Notes:
 - To override, use `SMARTTHINGS_REDIRECT_URI` in `.env` or pass `--redirect-uri`.
 - If you can't run a local callback, use manual mode:
   ```bash
-  python3 scripts/smartthings_auth.py --manual
+  ./venv/bin/python scripts/smartthings_auth.py --manual
   ```
+  (Use the venv's interpreter, not a bare `python3` — the dependencies live in the venv.)
 
 > **Token lifetime:** SmartThings refresh tokens are single-use and expire after roughly 30 days
 > of inactivity. The app rotates them automatically whenever it talks to the API, but if the app
@@ -103,8 +110,9 @@ read the state back to confirm. If it can't be confirmed the home screen says so
 claiming success — the old code reported "launched successfully" either way, which is what made
 this fail silently.
 
-- On `local`: check `./run.sh --pair --check`. If **Paired: no**, re-run `./run.sh --pair`. If the
-  TV was replaced or changed IP, clear `TV_IP` in `.env` to let it rediscover.
+- On `local`: check `./run.sh --pair --check` (or `roku-cnn.py --check` for the cron deployment).
+  If **Paired: no**, re-run `./run.sh --pair`. If the TV was replaced or changed IP, clear `TV_IP`
+  in `.env` to let it rediscover.
 - On `smartthings`: an HTTP 200 there means "accepted", not "the TV did it", so the app retries up
   to four times with backoff. Look for `Mute verification attempt` in the log.
 
@@ -153,14 +161,20 @@ The `scripts/roku-cnn.py` script launches CNN and mutes the TV headlessly — no
     `tv_local.py` is only needed for `TV_BACKEND=local`, but copying it always keeps the two
     deployments identical. The script finds it either beside itself or in the repo's `app/`.
 
+    This `.env` is separate from the repo's and is not tracked by git, so it won't pick up changes
+    from a `git pull`. Set `TV_IP` in it — otherwise every cron run starts with a ~6s subnet scan.
+
 2.  **Install dependencies in the server's venv:**
     ```bash
     /home/adam/.scripts/venv/bin/pip install requests python-dotenv samsungtvws
     ```
-    Pair the Pi with the TV once (it needs its own token — the prompt appears on the TV):
+    Pair the server with the TV once — pairing tokens are per-host, so the Pi needs its own even
+    if your laptop is already paired:
     ```bash
     cd /path/to/repo && ./run.sh --pair
     ```
+    Run it as the same user cron runs as: the token lands in that user's `~`, and both the web app
+    and the cron job read it from there, so one pairing covers both.
 
 3.  **Verify the deployment** (checks Roku, TV, and pairing without launching or muting):
     ```bash
@@ -262,6 +276,13 @@ one-click-cnn/
 │   ├── pair-tv.py           # One-time local TV pairing helper
 │   └── smartthings_auth.py  # OAuth authorization helper
 ├── .env.example             # Environment variable template
+├── AGENTS.md                # Notes for developing on this repo
 ├── requirements.txt         # Python dependencies
 └── run.sh                   # Startup script
 ```
+
+## Development
+
+See [AGENTS.md](AGENTS.md) for architecture notes, the device quirks behind the current design
+(including approaches that look right but don't work on this hardware), and how to test without
+touching real hardware.
