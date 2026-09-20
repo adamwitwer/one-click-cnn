@@ -294,6 +294,17 @@ def get_tv_status() -> str:
         return tv_local.get_status()
     return get_tv_status_smartthings()
 
+def wait_for_tv() -> bool:
+    """Wait for the TV to be reachable before commanding it.
+
+    Only the local backend has anything to wait for: a Roku launch wakes the TV
+    over HDMI-CEC and it is off the LAN entirely until it finishes coming up.
+    SmartThings queues commands in the cloud, so there is nothing to wait on.
+    """
+    if using_local():
+        return tv_local.wait_awake()
+    return True
+
 def ensure_muted(hold: bool = False):
     """Mute the TV and confirm it took effect.
 
@@ -381,10 +392,9 @@ def _launch_worker() -> None:
         else:
             log(f"CNN not in foreground after {CNN_FOREGROUND_TIMEOUT}s; muting anyway.")
 
-        if using_local():
-            # The launch may have just woken the TV over HDMI-CEC. Muting before
-            # it is back on the network is a mute that silently never happens.
-            tv_local.wait_awake()
+        # The launch may have just woken the TV over HDMI-CEC. Muting before
+        # it is back on the network is a mute that silently never happens.
+        wait_for_tv()
 
         if not using_local() and not _smartthings_config_ok():
             detail, muted = "SmartThings is not configured.", False

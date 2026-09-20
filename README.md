@@ -120,8 +120,10 @@ the mute slips back when CNN's audio starts.
 - On `smartthings`: an HTTP 200 there means "accepted", not "the TV did it", so the app retries up
   to four times with backoff. Look for `Mute verification attempt` in the log.
 
-**Everything reports "TV appears to be off".** Usually the TV genuinely is in standby. On
-`smartthings`, if dead tokens are the cause instead you'll see the re-authorization message — run
+**Everything reports "TV appears to be off".** Usually the TV genuinely is in standby — it drops
+off the network entirely when it sleeps. This message now means the TV didn't answer at all: a TV
+that is on but doesn't report its mute state leaves the screen as it is instead. On `smartthings`,
+if dead tokens are the cause you'll see the re-authorization message instead — run
 `./run.sh --auth`.
 
 **The TV mutes and immediately unmutes.** With `TV_MUTE_READBACK=off` mute is a blind toggle, so
@@ -273,6 +275,10 @@ Neither backend polls while the page is hidden. On `local`, status is read every
 fresh — the calls are free and answer in well under a second. On `smartthings`, polling drops to
 20s and only forces a device refresh on one poll in three (roughly 80 API calls per hour of active
 screen time); raise `poll_ms` in `app/routes.py` if the published limits turn out to be tight.
+
+While a launch is muting, polling speeds up to 4s but stops touching the TV: it would be querying
+the same UPnP service the mute is verifying against, and a readback lost to that contention is a
+mute that misses. The status reads `unknown` for those few seconds and the page holds its display.
 
 ## Project Structure
 

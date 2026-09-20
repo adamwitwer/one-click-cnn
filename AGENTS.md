@@ -33,7 +33,8 @@ roku-cnn.py   Standalone cron equivalent of the launch flow
 
 `TV_BACKEND` selects how the TV is muted: `local` (default, free) or `smartthings` (cloud, paid
 tiers from October 2026). Routes never call a backend directly — they go through the dispatch
-layer in `routes.py` (`get_tv_status`, `ensure_muted`, `toggle_mute`, `refresh_tv_status`). Add
+layer in `routes.py` (`get_tv_status`, `ensure_muted`, `toggle_mute`, `wait_for_tv`,
+`refresh_tv_status`). Add
 new TV operations there rather than branching on `TV_BACKEND` at the call site.
 
 `roku-cnn.py` is deployed by copying it plus `tv_local.py` into a directory on the Pi, so it must
@@ -43,7 +44,10 @@ give it imports that assume a repo checkout.
 ## Device behavior worth knowing
 
 These were established by testing against real hardware (Roku Streaming Stick 4K, Samsung
-UN50TU690TFXZA). They are the reasons the code looks the way it does.
+UN50TU690TFXZA). They are the reasons the code looks the way it does. Where a bullet is marked
+**(suspected)** it is an inferred failure mode the code defends against but which has *not* been
+caught in the act — treat it as a hypothesis, and if you get the chance to confirm or kill one,
+say so here. Don't promote one to fact without evidence.
 
 - **A SmartThings HTTP 200 means "accepted", not "done."** Commands are delivered to the device
   asynchronously and can be dropped silently. This is what made auto-mute unreliable: the app
@@ -54,24 +58,38 @@ UN50TU690TFXZA). They are the reasons the code looks the way it does.
 - **`KEY_MUTE` over the websocket is a toggle, not a set.** So `ensure_muted()` reads state first
   and sends the key only if the TV isn't already where it should be. Never send it in a blind
   retry loop; that can undo a mute that already succeeded.
-- **UPnP readback lags the key press.** The TV acts on `KEY_MUTE` immediately but can keep
-  reporting the old state for several seconds. Reading once after a fixed sleep and calling a
-  stale answer "it didn't work" is how a second `KEY_MUTE` went out and unmuted a TV that had
-  muted — reported to the user as success, TV audibly unmuted. Verify by polling until the state
-  changes (`_await_mute`), never with a single read.
-- **A dropped `GetMute` is not evidence of anything.** The UPnP endpoint drops the odd request
-  while the TV is busy, and is absent entirely for the first seconds after the TV wakes. One
-  unanswered call used to mean "could not reach the TV to mute it" on a TV that was muting fine.
+- **UPnP readback lags the key press (suspected).** The best-fitting explanation for "the mute
+  just doesn't work maybe a quarter of the time": if the TV acts on `KEY_MUTE` immediately but
+  keeps reporting the old state for a few seconds, the old single read 1.5s later saw a stale
+  "unmuted", called the key press a failure, and sent a second `KEY_MUTE` — unmuting the TV that
+  had just muted, then reporting success. Replaying the old algorithm against a TV that lags
+  three reads does exactly that (returns `True`, TV left unmuted, two keys sent), so the bug is
+  real *if* the lag is; the lag itself hasn't been caught on hardware. `scripts/pair-tv.py`
+  already warned about "stale readback" before any of this, which is where the suspicion comes
+  from. Either way, polling until the state changes (`_await_mute`) is strictly better than one
+  read: it costs nothing when the TV is prompt.
+- **A dropped `GetMute` is not evidence of anything.** The UPnP endpoint is absent for the first
+  seconds after the TV wakes, and one unanswered call used to mean "could not reach the TV to
+  mute it". Caught in the cron log (Pi, 2026-09-19 18:30): CNN reached the foreground at
+  18:30:02, `GetMute` was refused at 18:30:04 (errno 111) because the TV was still coming up from
+  the HDMI-CEC wake, and the run logged `Failed to mute TV` having sent one blind key.
   `read_mute()` retries; `get_mute()` is the raw single shot.
-- **A TV in standby is off the LAN, not slow.** Ports 8001/9197/8002 refuse connections instantly
-  (errno 64, "Host is down") rather than timing out, so probing a sleeping TV is cheap. It comes
-  back several seconds after the Roku launch wakes it over HDMI-CEC, which is exactly when the
-  launch-time mute fires — hence `wait_awake()` before muting.
-- **The TV counts websocket clients.** `send_key` closes its connection explicitly; one left for
-  the garbage collector still occupies a slot, and the next connection is refused.
-- **A mute can slip back on its own.** CNN's audio coming up (or an HDMI-CEC volume event) can
-  undo a mute placed the instant the app reaches the foreground. The launch paths pass
-  `hold=True`, which re-checks for a few seconds and re-asserts once.
+- **A TV in standby is off the LAN, not slow.** Measured: 20 consecutive `GetMute` calls to a
+  sleeping TV all failed in 0.00s (errno 64 "Host is down" from macOS, errno 111 "Connection
+  refused" from the Pi) rather than burning their timeout. So probing a sleeping TV is cheap, and
+  a fast failure says nothing about how long it will take to come back. It rejoins the network
+  seconds after the Roku launch wakes it over HDMI-CEC, which is exactly when the launch-time
+  mute fires — hence `wait_awake()` before muting.
+- **The TV may count websocket clients (suspected).** `send_key` closes its connection
+  explicitly rather than leaving it to the garbage collector. Samsung TVs are widely reported to
+  cap concurrent remote clients, which would make a leaked connection cost the *next* key press —
+  but that has not been reproduced here. Closing is correct hygiene regardless; don't cite this
+  as the cause of a failed key without checking.
+- **A mute can slip back on its own (suspected).** A mute placed the instant CNN reaches the
+  foreground could be undone moments later by the app's own audio starting or an HDMI-CEC volume
+  event. Not observed — the launch paths pass `hold=True`, which watches for a few seconds and
+  re-asserts once, and the log line `TV drifted back to mute=False after the mute landed` is the
+  thing to grep for to confirm it ever happens.
 - **Websocket pairing is per-host and interactive.** The first connection raises a prompt on the
   TV that a human must accept with the remote. Tokens live in `~/.samsungtv_token.txt` and do not
   transfer between machines. Unattended pairing attempts just time out.
@@ -88,7 +106,9 @@ UN50TU690TFXZA). They are the reasons the code looks the way it does.
   on either side of this: reporting unverified as success hid a mute that never happened, and
   reporting it as failure put "Could not reach the TV to mute it" on screen while the TV sat there
   muted. `None` is logged, not surfaced. Keep the three apart at every layer — `routes.ensure_muted`,
-  `_launch_worker`, `_launch_state["muted"]`, and the `launch.muted === false` test in the page.
+  `routes.toggle_mute`, `_launch_worker`, `_launch_state["muted"]`, the `is not False` test in the
+  `/toggle-mute` route, and the `launch.muted === false` test in the page. A plain truthiness test
+  anywhere on that path silently re-merges `None` with `False` and the false banner comes back.
 - **Read config lazily.** `tv_local` is imported before `load_dotenv()` runs, so anything captured
   at module import misses `.env`. Use accessor functions (`token_file()`, `mute_readback()`), not
   module-level constants, for anything env-derived. `TV_IP` is likewise read per call.
@@ -123,7 +143,7 @@ UN50TU690TFXZA). They are the reasons the code looks the way it does.
 ```
 tests/run.py                        runner — runs each suite in its own process
 tests/fakes.py                      shared doubles (FakeRoku, fake requests, launch waiter)
-tests/test_local_backend.py         toggle semantics, verification, launch flow
+tests/test_local_backend.py         toggle semantics, readback failure modes, launch flow
 tests/test_smartthings_backend.py   async commands, retries, token failures
 ```
 
@@ -137,7 +157,11 @@ Each suite runs in its own process because `TV_BACKEND` is resolved when `app.ro
 
 The suites are worth extending rather than replacing — they encode the specific regressions this
 app has already suffered. Verified by mutation: removing the "already muted" guard, or returning
-success from an unverified mute, each makes a named check fail.
+success from an unverified mute, each makes a named check fail. The four checks added for the
+readback failures were each confirmed to fail against the previous implementation before the fix
+landed — replaying the old `ensure_muted()` against the same fakes leaves the TV unmuted while
+returning `True`. If you rewrite the mute path, re-run that exercise rather than trusting a green
+suite; these fakes are the only place the failure modes exist.
 
 The fake TV in `test_local_backend.py` models the *reporting* failures, because that is where
 every mute bug has lived: `readback` (UPnP silent), `readback_fails` (silent for N calls, then
