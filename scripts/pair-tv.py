@@ -62,7 +62,7 @@ def check():
     print(f"Power state:    {tv_local.get_power()}")
     print(f"Paired:         {'yes' if tv_local.paired() else 'no'} ({tv_local.token_file()})")
 
-    mute = tv_local.get_mute()
+    mute = tv_local.read_mute()
     print(f"Mute readback:  {'unavailable' if mute is None else mute}")
     print(f"Volume:         {tv_local.get_volume()}")
     return True
@@ -86,7 +86,7 @@ def main():
     print("=" * 62 + "\n")
     time.sleep(2)
 
-    before = tv_local.get_mute()
+    before = tv_local.read_mute()
     if not tv_local.send_key("KEY_MUTE", timeout=45):
         print("\n✗ Pairing failed. Common causes:")
         print("   - The prompt wasn't accepted in time (just run this again)")
@@ -97,8 +97,10 @@ def main():
         return 1
 
     print("✓ Key accepted — the TV authorized this client.")
-    time.sleep(2)
-    after = tv_local.get_mute()
+    # The TV reports the new state a moment after acting on the key; read
+    # through that lag rather than calling it a failed key press.
+    time.sleep(3)
+    after = tv_local.read_mute()
 
     print(f"\nMute before: {before}   after: {after}")
     if before is None or after is None:
@@ -110,7 +112,7 @@ def main():
         print("  Restoring the previous state…")
         tv_local.send_key("KEY_MUTE")
         time.sleep(1.5)
-        print(f"  Restored to: {tv_local.get_mute()}")
+        print(f"  Restored to: {tv_local.read_mute()}")
     else:
         print("\n⚠ The key was sent but the reported mute state didn't change.")
         print("  Either the TV ignored KEY_MUTE, or UPnP readback is stale.")

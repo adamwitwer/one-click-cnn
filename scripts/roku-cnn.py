@@ -253,13 +253,24 @@ def wait_for_cnn(timeout=CNN_FOREGROUND_TIMEOUT, interval=1.5):
 
 
 def mute_tv():
-    """Mute via the local UPnP path, falling back to SmartThings if configured."""
+    """Mute via the local UPnP path, falling back to SmartThings if configured.
+
+    True = confirmed muted, False = the TV reported itself unmuted, None = the
+    key was sent but the TV never reported back. None is not failure: readback
+    is the flakier of the TV's two interfaces, so an unconfirmed mute usually
+    is a mute. Exiting non-zero on it would fill the cron log with false alarms.
+    """
     if TV_BACKEND == "local":
         if tv_local is None:
             log("TV_BACKEND=local but tv_local.py was not found next to this script.")
             return False
+        # The launch may have just woken the TV over HDMI-CEC; it is off the
+        # LAN entirely until it finishes coming up.
+        tv_local.wait_awake()
         log("Muting TV locally over UPnP…")
-        return tv_local.ensure_muted(True)
+        # Hold it briefly — CNN's own audio starting can undo a mute placed the
+        # moment the app reaches the foreground.
+        return tv_local.ensure_muted(True, hold=True)
 
     log("Muting TV via SmartThings…")
     return mute_tv_smartthings()
@@ -300,7 +311,7 @@ def check():
               f"({tv_local.token_file()})")
         ok = ok and paired
 
-        mute = tv_local.get_mute()
+        mute = tv_local.read_mute()
         print(f"Mute:         {'unreadable' if mute is None else mute}")
     else:
         missing = [n for n, v in (("SMARTTHINGS_CLIENT_ID", SMARTTHINGS_CLIENT_ID),
@@ -336,8 +347,11 @@ def main():
     else:
         log(f"CNN not in foreground after {CNN_FOREGROUND_TIMEOUT}s; muting anyway.")
 
-    if mute_tv():
+    muted = mute_tv()
+    if muted is True:
         log("TV muted successfully.")
+    elif muted is None:
+        log("Mute sent, but the TV didn't confirm it (readback unavailable).")
     else:
         log("Failed to mute TV.")
         sys.exit(1)

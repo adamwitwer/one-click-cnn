@@ -106,9 +106,13 @@ Notes:
 
 **CNN launches but the TV doesn't mute.** Both backends wait for CNN to actually reach the
 foreground (polling Roku's `/query/active-app`) rather than sleeping a fixed guess, then mute and
-read the state back to confirm. If it can't be confirmed the home screen says so instead of
-claiming success — the old code reported "launched successfully" either way, which is what made
-this fail silently.
+read the state back to confirm.
+
+On `local`, the launch routine also waits for the TV to be back on the network (a Roku launch
+wakes it over HDMI-CEC, and until it finishes waking it refuses connections outright), polls for
+the mute to be *reported* rather than reading once — the TV acts immediately but can keep
+reporting the old state for a few seconds — and re-checks for a few seconds afterwards in case
+the mute slips back when CNN's audio starts.
 
 - On `local`: check `./run.sh --pair --check` (or `roku-cnn.py --check` for the cron deployment).
   If **Paired: no**, re-run `./run.sh --pair`. If the TV was replaced or changed IP, clear `TV_IP`
@@ -120,8 +124,15 @@ this fail silently.
 `smartthings`, if dead tokens are the cause instead you'll see the re-authorization message — run
 `./run.sh --auth`.
 
-**The TV mutes and immediately unmutes.** Only possible with `TV_MUTE_READBACK=off`, where mute is
-a blind toggle. Set it back to `auto` if your TV reports state reliably.
+**The TV mutes and immediately unmutes.** With `TV_MUTE_READBACK=off` mute is a blind toggle, so
+launching while already muted unmutes; set it back to `auto` if your TV reports state reliably.
+Otherwise the log will show `TV drifted back to mute=False after the mute landed` — something on
+the TV's side undid it, and the app re-asserts the mute once.
+
+**It says the mute couldn't be confirmed, but the TV is muted.** The control path (websocket) and
+the readback path (UPnP) are separate services on the TV and fail separately, so an unconfirmed
+mute is usually a mute. The app logs this and leaves the screen alone; it only shows a failure
+when the TV itself reports back that it is not muted.
 
 ## Usage
 
@@ -241,6 +252,8 @@ anything.
 
 - **Control:** `KEY_MUTE` over the Tizen websocket on port 8002.
 - **Readback:** UPnP `RenderingControl` `GetMute` on port 9197, used to verify the mute landed.
+  Retried rather than trusted on the first answer, and polled after a key press rather than read
+  once — the TV reports the new state a variable moment after acting on it.
   `SetMute` is *not* used — a UN50TU690TFXZA answers it with UPnP error 501 ("Action Failed")
   outside an active DLNA session, so control goes through the websocket instead.
 - **Power:** the Tizen info endpoint on port 8001 reports `PowerState`.

@@ -118,10 +118,11 @@
                     showOverlay();
                 } else if (overlay.style.display === 'flex') {
                     // Routine just finished — take the spinner down and report
-                    // only a *genuine* failure. The TV's own reported state wins
-                    // over the worker's return value: readback can time out while
-                    // the TV is still powering on, so a mute that actually landed
-                    // must not surface as an error.
+                    // only a *genuine* failure. Two things have to agree before
+                    // that: the worker saw the TV report itself unmuted (null
+                    // means it sent the key but never got an answer, which is a
+                    // flaky readback far more often than a failed mute), and the
+                    // TV is not now reporting itself muted.
                     hideOverlay();
                     if (launchHint) {
                         if (launch.muted === false && data.status !== 'muted') {
@@ -132,37 +133,40 @@
                         }
                     }
                 }
-                if (!muteWrapper) {
-                    return;
-                }
-                if (data.status === 'unavailable' || data.status === 'auth') {
-                    muteWrapper.style.display = 'none';
-                    if (offlineHint) {
-                        offlineHint.textContent = data.status === 'auth'
-                            ? 'SmartThings needs re-authorization — run ./run.sh --auth'
-                            : 'SmartThings is not configured on this device.';
-                        offlineHint.style.display = 'block';
-                    }
-                } else if (data.status === 'off') {
-                    muteWrapper.style.display = 'none';
-                    if (offlineHint) {
-                        offlineHint.textContent = 'TV appears to be off or unavailable.';
-                        offlineHint.style.display = 'block';
-                    }
-                } else {
-                    muteWrapper.style.display = 'block';
-                    if (offlineHint) {
-                        offlineHint.style.display = 'none';
-                    }
-                    const label = document.getElementById('muteLabel');
-                    const icon = document.getElementById('muteIcon');
-                    if (label && icon) {
-                        if (data.status === 'muted') {
-                            label.textContent = 'Unmute';
-                            icon.textContent = '🔊';
-                        } else {
-                            label.textContent = 'Mute';
-                            icon.textContent = '🔇';
+                // 'unknown' means the TV is on but didn't answer the readback,
+                // or is busy being muted right now. That is not news: leave the
+                // controls as they are rather than flapping to "TV is off" and
+                // taking the mute button away from a TV that is working fine.
+                if (muteWrapper && data.status !== 'unknown') {
+                    if (data.status === 'unavailable' || data.status === 'auth') {
+                        muteWrapper.style.display = 'none';
+                        if (offlineHint) {
+                            offlineHint.textContent = data.status === 'auth'
+                                ? 'SmartThings needs re-authorization — run ./run.sh --auth'
+                                : 'SmartThings is not configured on this device.';
+                            offlineHint.style.display = 'block';
+                        }
+                    } else if (data.status === 'off') {
+                        muteWrapper.style.display = 'none';
+                        if (offlineHint) {
+                            offlineHint.textContent = 'TV appears to be off or unavailable.';
+                            offlineHint.style.display = 'block';
+                        }
+                    } else {
+                        muteWrapper.style.display = 'block';
+                        if (offlineHint) {
+                            offlineHint.style.display = 'none';
+                        }
+                        const label = document.getElementById('muteLabel');
+                        const icon = document.getElementById('muteIcon');
+                        if (label && icon) {
+                            if (data.status === 'muted') {
+                                label.textContent = 'Unmute';
+                                icon.textContent = '🔊';
+                            } else {
+                                label.textContent = 'Mute';
+                                icon.textContent = '🔇';
+                            }
                         }
                     }
                 }

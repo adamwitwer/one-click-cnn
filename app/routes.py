@@ -294,18 +294,31 @@ def get_tv_status() -> str:
         return tv_local.get_status()
     return get_tv_status_smartthings()
 
-def ensure_muted() -> bool:
-    """Mute the TV and confirm it actually took effect."""
+def ensure_muted(hold: bool = False):
+    """Mute the TV and confirm it took effect.
+
+    True = confirmed muted, False = confirmed not muted, None = the command was
+    sent but the TV never reported back. Callers must keep None distinct from
+    False: the local backend's readback path fails on its own, so treating an
+    unconfirmed mute as a failed one reports a mute that worked as broken.
+    `hold` re-checks for a few seconds and re-asserts if the state slips.
+    """
     if using_local():
-        return tv_local.ensure_muted(True)
+        return tv_local.ensure_muted(True, hold=hold)
     return mute_tv_smartthings()
 
-def toggle_mute() -> bool:
+def toggle_mute():
+    """Flip the TV's mute. Tri-state like ensure_muted — None means the key was
+    sent and the TV never reported back, which is not an error to show."""
     if using_local():
-        current = tv_local.get_mute()
+        current = tv_local.read_mute()
         if current is None:
-            log("Could not read mute state from the TV.")
-            return False
+            # The button means "flip it" — so flip it. Unlike the launch path,
+            # which needs a specific end state, a blind toggle is exactly what
+            # was asked for, and refusing it over an unreadable state left the
+            # user with a dead button on a TV that takes keys fine.
+            log("Could not read mute state; sending a blind KEY_MUTE toggle.")
+            return tv_local.send_key("KEY_MUTE")
         return tv_local.ensure_muted(not current)
     return toggle_mute_smartthings()
 
@@ -368,22 +381,36 @@ def _launch_worker() -> None:
         else:
             log(f"CNN not in foreground after {CNN_FOREGROUND_TIMEOUT}s; muting anyway.")
 
+        if using_local():
+            # The launch may have just woken the TV over HDMI-CEC. Muting before
+            # it is back on the network is a mute that silently never happens.
+            tv_local.wait_awake()
+
         if not using_local() and not _smartthings_config_ok():
             detail, muted = "SmartThings is not configured.", False
-        elif ensure_muted():
-            detail, muted = "", True
-            log("TV muted successfully (CNN).")
         else:
-            muted = False
-            if using_local():
-                detail = "Could not reach the TV to mute it."
-            # Distinguish "TV ignored us" from "our tokens are dead" — the
-            # latter needs a re-auth and would otherwise look like a flaky TV.
-            elif get_tv_status() == "auth":
-                detail = "SmartThings needs re-authorization (./run.sh --auth)."
+            # Hold the mute briefly: CNN's own audio coming up can undo one
+            # placed the instant the app reaches the foreground.
+            muted = ensure_muted(hold=True)
+            if muted is True:
+                detail = ""
+                log("TV muted successfully (CNN).")
+            elif muted is None:
+                # Sent, never confirmed. Almost always a readback that timed out
+                # on a TV that did mute, so this is logged and not surfaced as an
+                # error; the next status poll reports what the TV actually did.
+                detail = "Mute sent, but the TV didn't confirm it."
+                log(f"Mute unconfirmed (CNN): {detail}")
             else:
-                detail = "Could not confirm the TV muted."
-            log(f"Failed to mute TV (CNN): {detail}")
+                if using_local():
+                    detail = "The TV did not mute."
+                # Distinguish "TV ignored us" from "our tokens are dead" — the
+                # latter needs a re-auth and would otherwise look like a flaky TV.
+                elif get_tv_status() == "auth":
+                    detail = "SmartThings needs re-authorization (./run.sh --auth)."
+                else:
+                    detail = "Could not confirm the TV muted."
+                log(f"Failed to mute TV (CNN): {detail}")
     except Exception as e:
         detail, muted = f"Mute failed: {e}", False
         log(f"Unexpected error in launch worker: {e}")
@@ -417,27 +444,37 @@ def register_routes(app):
 
     @app.route("/tv-status")
     def tv_status():
-        refresh = request.args.get("refresh", "1") == "1"
-        if refresh:
-            refresh_tv_status()
-        status = get_tv_status()
-        active_app = get_roku_active_app()
-        cnn_active = active_app.get("id") == CNN_APP_ID
         with _launch_lock:
             launch = dict(_launch_state)
+
+        if launch["in_progress"]:
+            # Stay off the TV while the mute routine has it. Polling the same
+            # UPnP service it is verifying against costs that routine answers,
+            # and a dropped readback there is what makes a mute miss. The page
+            # holds its current display on "unknown".
+            status = "unknown"
+        else:
+            if request.args.get("refresh", "1") == "1":
+                refresh_tv_status()
+            status = get_tv_status()
+
+        active_app = get_roku_active_app()
+        cnn_active = active_app.get("id") == CNN_APP_ID
         return jsonify({"status": status, "cnn_active": cnn_active, "launch": launch})
 
     @app.route("/toggle-mute", methods=["POST"])
     def toggle_mute_route():
         log("Web request received to toggle mute")
-        if toggle_mute():
+        # Only a TV that reported back and disagrees is an error. An unconfirmed
+        # toggle (None) went out fine and the home page's next poll shows what
+        # the TV actually did — an error page there is just a false alarm.
+        if toggle_mute() is not False:
             return redirect(url_for('home'))
-        else:
-            return render_template("message.html",
-                                   title="Error",
-                                   message="Failed to toggle mute. Check the logs for details.",
-                                   refresh_time=3,
-                                   is_error=True)
+        return render_template("message.html",
+                               title="Error",
+                               message="Failed to toggle mute. Check the logs for details.",
+                               refresh_time=3,
+                               is_error=True)
 
     @app.route("/start-cnn", methods=["POST"])
     def launch_cnn():
