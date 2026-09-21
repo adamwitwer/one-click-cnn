@@ -78,6 +78,13 @@
                 event.preventDefault();
                 if (launchHint) launchHint.style.display = 'none';
                 launchInProgress = true;
+                // Anything already in flight describes the world before this
+                // tap; bumping the epoch makes updateTvStatus discard it. And
+                // until the POST returns, no poll may take the spinner down —
+                // the Roku launch alone takes seconds when it wakes the TV.
+                epoch++;
+                launchPending = true;
+                clearTimeout(timer);
                 showOverlay();
                 try {
                     await fetch('/start-cnn', {
@@ -88,6 +95,7 @@
                     // The background worker is the source of truth; polling below
                     // will report the outcome even if this POST's response is lost.
                 }
+                launchPending = false;
                 poll();
             });
         });
@@ -101,15 +109,23 @@
         let pollCount = 0;
         let timer = null;
         let launchInProgress = false;
+        let launchPending = false;  // the tap's own POST is still in flight
+        let epoch = 0;              // bumped per tap; older responses are stale
 
         async function updateTvStatus() {
             try {
+                const sentEpoch = epoch;
                 const refresh = (!THROTTLE_REFRESH || pollCount++ % 3 === 0) ? '1' : '0';
                 const resp = await fetch(`/tv-status?refresh=${refresh}`, { cache: 'no-store' });
                 if (!resp.ok) {
                     return;
                 }
                 const data = await resp.json();
+                if (sentEpoch !== epoch || launchPending) {
+                    // Sent before the latest tap, or answered while its POST is
+                    // still out: either way it can't know about this launch.
+                    return;
+                }
 
                 const launch = data.launch || {};
                 launchInProgress = !!launch.in_progress;

@@ -226,6 +226,48 @@ def run(real_sleep):
     check("/tv-status reports muted and the launch outcome",
           body["status"] == "muted" and body["launch"]["muted"] is True)
 
+    # --- the launch counts as in progress from the moment of the tap ---
+    # The Roku call takes seconds when it wakes the TV. A poll landing then used
+    # to read "not launching" and the page dropped its spinner mid-launch.
+    from tests.fakes import Resp
+    seen = {}
+    real_post = roku.post
+
+    def slow_roku_post(url):
+        with routes._launch_lock:
+            seen["in_progress"] = routes._launch_state["in_progress"]
+        seen["poll"] = client.get("/tv-status?refresh=0").get_json()["launch"]["in_progress"]
+        return real_post(url)
+
+    reset(muted=False)
+    roku.active, roku.post = "0", slow_roku_post
+    client.post("/start-cnn")
+    wait_for_launch(routes, real_sleep)
+    check("launch is marked in progress before the Roku call returns",
+          seen["in_progress"] is True and seen["poll"] is True)
+
+    # A failed Roku launch must release the claim, or every later tap is refused.
+    reset(muted=False)
+    roku.post = lambda url: Resp(500)
+    resp = client.post("/start-cnn", headers={"X-Requested-With": "fetch"})
+    with routes._launch_lock:
+        state = dict(routes._launch_state)
+    check("a failed Roku launch releases the claim and says why",
+          resp.status_code == 502 and state["in_progress"] is False
+          and state["muted"] is False and "launch" in state["detail"])
+    roku.post = real_post
+
+    # A second tap mid-launch must not relaunch CNN under the running worker.
+    reset(muted=False)
+    with routes._launch_lock:
+        routes._launch_state.update(in_progress=True)
+    launches = roku.launches
+    resp = client.post("/start-cnn", headers={"X-Requested-With": "fetch"})
+    check("a tap during a launch doesn't relaunch CNN",
+          resp.get_json().get("already_running") is True and roku.launches == launches)
+    with routes._launch_lock:
+        routes._launch_state.update(in_progress=False)
+
     # --- a launch with no readback reports unverified, not failed ---
     reset(muted=False, readback=False)
     roku.active = "0"

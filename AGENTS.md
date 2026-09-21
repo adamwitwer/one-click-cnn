@@ -126,6 +126,13 @@ say so here. Don't promote one to fact without evidence.
   posts via `fetch` (header `X-Requested-With: fetch` → JSON ack; a no-JS form post still gets
   `message.html`) and keeps one spinner up while polling `/tv-status`, which reports
   `launch.in_progress` / `launch.muted` / `launch.detail`.
+- **A launch is in progress from the tap, not from the worker.** `/start-cnn` calls
+  `claim_launch()` *before* the Roku request, which takes a couple of seconds when it has to wake
+  the TV. Claiming after it left a window where a poll read "not launching", and the page dropped
+  its spinner mid-launch to flash "CNN is running / TV appears to be off". The page guards the
+  same window from its side: responses to polls sent before the tap (older `epoch`) or answered
+  while the tap's POST is still out (`launchPending`) are discarded. A failed Roku launch must
+  `abandon_launch()`, or every later tap is refused as a duplicate.
 - **Status polling stays off the TV while a mute routine is running.** `/tv-status` returns
   `"unknown"` for the duration instead of querying: the poll hits the same UPnP service the mute
   is verifying against, and a readback lost to that contention is a mute that misses. `"unknown"`

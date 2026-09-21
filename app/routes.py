@@ -428,12 +428,28 @@ def _launch_worker() -> None:
     with _launch_lock:
         _launch_state.update(in_progress=False, muted=muted, detail=detail)
 
-def start_launch_worker() -> None:
+def claim_launch() -> bool:
+    """Mark a launch in progress, before anything slow happens. False if one
+    already is.
+
+    Claimed up front rather than when the worker starts because the Roku
+    launch itself takes a couple of seconds when it has to wake the TV. A
+    status poll landing in that gap used to read "not launching", and the page
+    took its spinner down mid-launch to show "TV appears to be off".
+    """
     with _launch_lock:
         if _launch_state["in_progress"]:
-            log("Launch worker already running; not starting another.")
-            return
+            return False
         _launch_state.update(in_progress=True, muted=None, detail="")
+        return True
+
+def abandon_launch(detail: str) -> None:
+    """Release a claimed launch that never got as far as the worker."""
+    with _launch_lock:
+        _launch_state.update(in_progress=False, muted=False, detail=detail)
+
+def start_launch_worker() -> None:
+    """Run the mute half of a launch claimed with claim_launch()."""
     threading.Thread(target=_launch_worker, daemon=True).start()
 
 # ---------- Flask routes ----------
@@ -494,7 +510,17 @@ def register_routes(app):
         # plain form post (no JS) still gets the interstitial page.
         wants_json = request.headers.get("X-Requested-With") == "fetch"
 
+        if not claim_launch():
+            # A double tap, or a second phone. The running launch will report
+            # its own outcome; relaunching CNN underneath it would only restart
+            # the app it is waiting on.
+            log("Launch already in progress; not starting another.")
+            if wants_json:
+                return jsonify({"ok": True, "already_running": True})
+            return redirect(url_for('home'))
+
         if not launch_roku_app(CNN_APP_ID, "CNN"):
+            abandon_launch("Could not launch the CNN app.")
             if wants_json:
                 return jsonify({"ok": False, "error": "Could not launch the CNN app."}), 502
             return render_template("message.html",
