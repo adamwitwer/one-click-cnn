@@ -37,6 +37,12 @@ layer in `routes.py` (`get_tv_status`, `ensure_muted`, `toggle_mute`, `wait_for_
 `refresh_tv_status`). Add
 new TV operations there rather than branching on `TV_BACKEND` at the call site.
 
+Both deployments run on the same Pi and are updated separately — the web app from a git checkout
+behind a systemd unit, the cron script from copied files. A change to `tv_local.py` or the mute
+path needs both. The README's [Deployments](README.md#deployments) section has the commands; the
+failure mode is updating one and leaving the other running old code, which looks fine until it
+doesn't.
+
 `roku-cnn.py` is deployed by copying it plus `tv_local.py` into a directory on the Pi, so it must
 keep working as a standalone file. It loads `tv_local` from beside itself or from `app/`. Don't
 give it imports that assume a repo checkout.

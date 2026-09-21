@@ -165,6 +165,9 @@ when the TV itself reports back that it is not muted.
 
 The `scripts/roku-cnn.py` script launches CNN and mutes the TV headlessly — no web server needed. It reads configuration from a `.env` file in the same directory (or the repo root).
 
+This is a *second* deployment, independent of the web app — see [Deployments](#deployments) for
+keeping the two from drifting apart once both are installed.
+
 1.  **Copy the script, its TV helper, and `.env` to your server:**
     ```bash
     cp scripts/roku-cnn.py /home/adam/.scripts/roku-cnn.py
@@ -222,6 +225,70 @@ If you run this on a Raspberry Pi (or any server) with Tailscale installed, you 
     ```
 
 *Tip: For a nicer URL, consider Tailscale's built-in `serve` feature or MagicDNS.*
+
+## Deployments
+
+On a Raspberry Pi the two halves of this app are deployed **separately and independently**, and
+a change to shared code (`tv_local.py`, the mute path) needs both updated. Updating one and not
+the other is easy to do and hard to notice: the stale half keeps running and keeps working, just
+on old code.
+
+| | Web app | Cron script |
+| --- | --- | --- |
+| Lives in | a git checkout, e.g. `~/Projects/one-click-cnn` | copied files, e.g. `~/.scripts/` |
+| Started by | a systemd unit (below) | `crontab`, daily |
+| Updated with | `git pull` **and a service restart** | `scp` the two files again |
+| Uses | the checkout's `.env` | its own separate `.env` |
+| Verify with | an HTTP 200 from port 5050 | `roku-cnn.py --check` |
+
+Both read the same pairing token from the user's `~`, so one `./run.sh --pair` covers both — as
+long as cron runs as the same user.
+
+### Running the web app as a service
+
+So it survives reboots and restarts on failure. `/etc/systemd/system/one-touch-cnn.service`:
+
+```ini
+[Unit]
+Description=One-Touch CNN
+After=network.target
+
+[Service]
+User=adam
+WorkingDirectory=/home/adam/Projects/one-click-cnn
+Environment="PYTHONPATH=."
+EnvironmentFile=/home/adam/Projects/one-click-cnn/.env
+ExecStart=/home/adam/Projects/one-click-cnn/venv/bin/flask run
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now one-touch-cnn
+```
+
+> On the Pi this repo is deployed to, the unit is named **`roku-launcher`** — it predates the
+> app being called One-Touch CNN. Check `systemctl list-units | grep -i roku` before assuming
+> a name.
+
+### Deploying an update to both
+
+```bash
+# 1. Web app: pull, then restart — a pull alone leaves the old process running
+ssh adam@raspberrypi 'cd ~/Projects/one-click-cnn && git pull --ff-only && ./venv/bin/python tests/run.py'
+ssh adam@raspberrypi 'sudo systemctl restart roku-launcher'
+curl -sI http://raspberrypi:5050/ | head -1
+
+# 2. Cron script: copy the two files, leave its .env alone
+scp scripts/roku-cnn.py app/tv_local.py adam@raspberrypi:~/.scripts/
+ssh adam@raspberrypi '~/.scripts/venv/bin/python ~/.scripts/roku-cnn.py --check'
+```
+
+The cron deployment's `.env` is copied once during setup and not tracked by git — it holds its
+own `TV_IP`, so leave it alone on every update after that. Note that the update commands above
+copy only the two `.py` files for exactly that reason.
 
 ## Avoiding the SmartThings API fee (local backend)
 
