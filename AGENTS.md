@@ -106,6 +106,14 @@ say so here. Don't promote one to fact without evidence.
 
 ## Conventions
 
+- **Every request goes through `app/guard.py` first.** LAN, Tailnet and loopback only (404
+  otherwise), no cross-site POSTs (403, from `Sec-Fetch-Site` or `Origin`), and the body cap.
+  The cap is checked there because Flask enforces `MAX_CONTENT_LENGTH` only when a route
+  reads the body, and none of these do. A new button is a new POST and is covered
+  automatically. Don't add a route that changes TV or Roku state on GET: the cross-site
+  check only guards POSTs. When testing "outside" addresses, use real public ones: Python
+  counts the documentation ranges as private. `tests/test_guard.py` covers all of this.
+
 - **Never report success you haven't verified — and never report failure you haven't verified
   either.** `ensure_muted()` is tri-state: `True` (the TV reported the state we wanted), `False`
   (it reported the opposite), `None` (the key went out, the TV never answered). The two bugs sit

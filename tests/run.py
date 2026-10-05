@@ -16,6 +16,7 @@ import sys
 SUITES = [
     ("local backend", "test_local_backend.py"),
     ("smartthings backend", "test_smartthings_backend.py"),
+    ("guard", "test_guard.py"),
 ]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
