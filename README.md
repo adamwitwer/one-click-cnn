@@ -205,6 +205,21 @@ keeping the two from drifting apart once both are installed.
     00 19 * * * /home/adam/.scripts/venv/bin/python /home/adam/.scripts/roku-cnn.py >> /home/adam/roku-cnn.log 2>&1
     ```
 
+### Watching for unexpected power-offs
+
+`scripts/tv-watch.py` is a read-only diagnostic. It runs every minute and logs a line whenever the
+TV's power, the Roku's power mode, the foreground app (including the screensaver), or the Roku's
+playback state changes. It also flags Roku reboots and logs an hourly heartbeat. It never sends a
+key and never touches the TV's UPnP service, so it can't interfere with the launch-time mute.
+
+```bash
+scp scripts/tv-watch.py adam@raspberrypi:~/.scripts/
+ssh adam@raspberrypi '~/.scripts/venv/bin/python ~/.scripts/tv-watch.py --check'
+```
+```
+* * * * * /home/adam/.scripts/venv/bin/python /home/adam/.scripts/tv-watch.py >> /home/adam/tv-watch.log 2>&1
+```
+
 ## Remote Access via Tailscale
 
 If you run this on a Raspberry Pi (or any server) with Tailscale installed, you can access the app securely from anywhere without opening ports.

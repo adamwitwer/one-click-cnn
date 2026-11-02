@@ -29,6 +29,7 @@ No linter is configured.
 routes.py     Flask routes + backend dispatch + Roku control
 tv_local.py   Local TV control (websocket mute, UPnP readback, discovery)
 roku-cnn.py   Standalone cron equivalent of the launch flow
+tv-watch.py   Read-only per-minute logger of TV/Roku state changes (diagnostics)
 ```
 
 `TV_BACKEND` selects how the TV is muted: `local` (default, free) or `smartthings` (cloud, paid
