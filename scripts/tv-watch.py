@@ -189,6 +189,10 @@ def run():
             log(" | ".join(moved) + f"    [now: {describe(cur)}]")
         elif time.localtime(cur["at"]).tm_min == 0:
             log(f"heartbeat: {describe(cur)}")
+        if cur["uptime"] is None:
+            # Roku unreachable: keep the last known uptime, or a reboot that
+            # passes through "unreachable" would never be compared and missed.
+            cur["uptime"] = prev.get("uptime")
 
     save_state(cur)
 

@@ -102,6 +102,15 @@ World.uptime = 30
 out = tick()
 check("an uptime drop is reported as a Roku reboot", "ROKU REBOOTED" in out)
 
+real_get = watch.requests.get
+watch.requests.get = lambda url, **k: (_ for _ in ()).throw(ConnectionError()) if ":8060" in url else real_get(url)
+out = tick()
+check("Roku dropping off the network is logged", "roku Suspend → unreachable" in out)
+watch.requests.get = real_get
+World.uptime = 10
+out = tick()
+check("a reboot seen through an unreachable minute is still caught", "ROKU REBOOTED" in out)
+
 print("heartbeat and gaps")
 clock["t"] = (clock["t"] // 3600 + 1) * 3600 - 60
 out = tick()
