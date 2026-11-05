@@ -205,6 +205,19 @@ keeping the two from drifting apart once both are installed.
     00 19 * * * /home/adam/.scripts/venv/bin/python /home/adam/.scripts/roku-cnn.py >> /home/adam/roku-cnn.log 2>&1
     ```
 
+### Keeping CNN running through the evening
+
+`roku-cnn.py --keepalive` relaunches CNN when it has crashed back to the Roku home screen between
+18:30 and 23:30. It needs CNN to have been playing earlier that evening, the TV on, and the Roku
+awake, and it waits two minutes before relaunching. It stands down if someone opens another app,
+and it relaunches at most three times a night. It never changes the mute. Run it every minute:
+
+```
+* 18-23 * * * /home/adam/.scripts/venv/bin/python /home/adam/.scripts/roku-cnn.py --keepalive >> /home/adam/roku-cnn.log 2>&1
+```
+
+It logs only when it acts, in lines starting `Keepalive:`.
+
 ### Watching for unexpected power-offs
 
 `scripts/tv-watch.py` is a read-only diagnostic. It runs every minute and logs a line whenever the

@@ -28,7 +28,7 @@ No linter is configured.
 ```
 routes.py     Flask routes + backend dispatch + Roku control
 tv_local.py   Local TV control (websocket mute, UPnP readback, discovery)
-roku-cnn.py   Standalone cron equivalent of the launch flow
+roku-cnn.py   Standalone cron equivalent of the launch flow (+ --keepalive relaunch)
 tv-watch.py   Read-only per-minute logger of TV/Roku state changes (diagnostics)
 ```
 
@@ -102,6 +102,16 @@ say so here. Don't promote one to fact without evidence.
   transfer between machines. Unattended pairing attempts just time out.
 - **Roku's `/keypress/VolumeMute` appears to do nothing here.** The Roku returns 200 but the TV's
   reported mute state doesn't move. Tested; not a viable control path.
+- **The 18:30 launch turns the TV on only if the Roku was asleep.** The launch wakes the Roku
+  from Suspend, and the Roku wakes the TV over HDMI-CEC. An ECP launch to a Roku that is already
+  awake does not. Caught by `tv-watch` on 2026-11-04: the Roku's auto power-off had been
+  disabled, the Roku also restarted itself at 17:37 and stayed awake, and at 18:30 CNN launched
+  with the TV still off. The mute then failed with EHOSTUNREACH. Seen once, unambiguous. Keep the
+  Roku's auto power-off enabled.
+- **CNN dies about two hours into an evening (suspected).** On 2026-11-02 and 11-03 the Roku
+  stopped answering ECP for about a minute around 20:50 and came back on its home screen without
+  CNN. The Roku's Wi-Fi is strong, so an app crash is the leading guess, not the network.
+  `roku-cnn.py --keepalive` relaunches it. `Keepalive:` lines in the cron log count how often.
 - **CNN takes a variable time to reach the foreground.** Poll Roku's `/query/active-app` until the
   app ID matches rather than sleeping a fixed interval.
 

@@ -9,10 +9,13 @@ expiry). Set TV_BACKEND=smartthings in .env to use the cloud API instead.
 Deploy `tv_local.py` alongside this script — see the README's cron section.
 
 Usage:
-    python3 scripts/roku-cnn.py
+    python3 scripts/roku-cnn.py               # launch CNN and mute
+    python3 scripts/roku-cnn.py --keepalive   # relaunch CNN if it crashed (see keepalive())
+    python3 scripts/roku-cnn.py --check       # verify the deployment
 
 Cron example (daily at 7 PM):
     00 19 * * * /path/to/venv/bin/python /path/to/roku-cnn.py >> /home/adam/roku-cnn.log 2>&1
+    * 18-23 * * * /path/to/venv/bin/python /path/to/roku-cnn.py --keepalive >> /home/adam/roku-cnn.log 2>&1
 """
 import os
 import sys
@@ -252,6 +255,148 @@ def wait_for_cnn(timeout=CNN_FOREGROUND_TIMEOUT, interval=1.5):
     return False
 
 
+def get_roku_power():
+    """Roku power-mode (PowerOn, Suspend, …), or '' if it didn't answer."""
+    try:
+        resp = requests.get(f"http://{ROKU_IP}:8060/query/device-info", timeout=3)
+        if resp.status_code != 200:
+            return ""
+        return ET.fromstring(resp.text).findtext("power-mode") or ""
+    except Exception:
+        return ""
+
+
+def get_foreground():
+    """'cnn', 'home' (home screen or screensaver over it), 'other' (some other
+    app), or None if the Roku didn't answer."""
+    try:
+        resp = requests.get(f"http://{ROKU_IP}:8060/query/active-app", timeout=3)
+        if resp.status_code != 200:
+            return None
+        app = ET.fromstring(resp.text).find("app")
+    except Exception:
+        return None
+    if app is None:
+        return "home"
+    app_id = app.attrib.get("id", "")
+    if app_id == CNN_APP_ID:
+        return "cnn"
+    # The home screen reports either type="home" or a bare <app>Roku</app>.
+    if not app_id or app.attrib.get("type") == "home":
+        return "home"
+    return "other"
+
+
+# ---------- keepalive ----------
+#
+# CNN has been dying a couple of hours into the evening: the Roku goes quiet
+# for about a minute and comes back on its home screen. Run every minute from
+# cron, keepalive() puts CNN back — but only in the shape a crash leaves
+# behind, so it doesn't fight a person:
+#
+#   * CNN must have been seen in the foreground this evening, and the Roku is
+#     now on its home screen. Someone opening another app disarms it until CNN
+#     is seen again.
+#   * The TV must be on and the Roku awake. Launching to a sleeping Roku wakes
+#     the TV over HDMI-CEC, which would undo someone turning it off for the
+#     night; and with the TV off, CNN closes by itself within minutes.
+#   * Home must persist across KEEPALIVE_GRACE runs, so a person pressing Home
+#     to pick something else has a moment before CNN comes back.
+#   * At most KEEPALIVE_MAX relaunches an evening, so a CNN that dies on start
+#     doesn't relaunch all night.
+#
+# It never touches the mute: that is the TV's state, and survives the app.
+
+KEEPALIVE_START = (18, 30)
+KEEPALIVE_END = (23, 30)
+KEEPALIVE_GRACE = 2
+KEEPALIVE_MAX = 3
+
+
+def keepalive_state_file():
+    return os.path.expanduser(os.getenv("CNN_KEEPALIVE_STATE", "~/.cnn-keepalive.json"))
+
+
+def _load_keepalive(today):
+    try:
+        with open(keepalive_state_file()) as f:
+            state = json.load(f)
+        if state.get("date") == today:
+            return state
+    except Exception:
+        pass
+    return {"date": today, "armed": False, "home_runs": 0, "relaunches": 0}
+
+
+def _save_keepalive(state):
+    path = keepalive_state_file()
+    with open(path + ".tmp", "w") as f:
+        json.dump(state, f)
+    os.replace(path + ".tmp", path)
+
+
+def _tv_is_on():
+    tv = tv_local or _import_tv_local()
+    if tv is None or not os.getenv("TV_IP", "").strip():
+        # Without a known address tv_local would scan the subnet every minute.
+        return None
+    return tv.get_power() == "on"
+
+
+def keepalive(now=None):
+    """One keepalive pass. Returns what it did, for the tests and the log."""
+    now = now or time.localtime()
+    if not (KEEPALIVE_START <= (now.tm_hour, now.tm_min) < KEEPALIVE_END):
+        return "outside window"
+
+    state = _load_keepalive(time.strftime("%Y-%m-%d", now))
+    result = _keepalive_step(state)
+    _save_keepalive(state)
+    return result
+
+
+def _keepalive_step(state):
+    fg = get_foreground()
+    if fg is None:
+        return "roku not answering"          # the crash itself; wait it out
+    if fg == "cnn":
+        state.update(armed=True, home_runs=0)
+        return "cnn running"
+    if fg == "other":
+        if state["armed"]:
+            log("Keepalive: another app was opened over CNN; standing down.")
+        state.update(armed=False, home_runs=0)
+        return "other app"
+    if not state["armed"]:
+        return "not armed"
+
+    tv_on = _tv_is_on()
+    if tv_on is not True or get_roku_power() != "PowerOn":
+        why = "TV state unknown (TV_IP not set?)" if tv_on is None else "TV or Roku is off"
+        log(f"Keepalive: CNN is gone but {why}; not relaunching.")
+        state.update(armed=False, home_runs=0)
+        return "tv off"
+
+    state["home_runs"] += 1
+    if state["home_runs"] < KEEPALIVE_GRACE:
+        return "waiting"
+
+    if state["relaunches"] >= KEEPALIVE_MAX:
+        log(f"Keepalive: CNN dropped again after {KEEPALIVE_MAX} relaunches tonight; giving up.")
+        state.update(armed=False, home_runs=0)
+        return "gave up"
+
+    state["relaunches"] += 1
+    state["home_runs"] = 0
+    log(f"Keepalive: CNN dropped to the home screen; relaunching "
+        f"({state['relaunches']}/{KEEPALIVE_MAX} tonight).")
+    if not launch_cnn_app():
+        return "launch failed"
+    if wait_for_cnn():
+        log("Keepalive: CNN is back in the foreground.")
+    return "relaunched"
+
+
 def mute_tv():
     """Mute via the local UPnP path, falling back to SmartThings if configured.
 
@@ -337,6 +482,9 @@ def check():
 def main():
     if "--check" in sys.argv:
         sys.exit(0 if check() else 1)
+    if "--keepalive" in sys.argv:
+        keepalive()
+        return
 
     log("CNN auto-start script began.")
     if not launch_cnn_app():

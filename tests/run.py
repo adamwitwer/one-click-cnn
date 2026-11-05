@@ -18,6 +18,7 @@ SUITES = [
     ("smartthings backend", "test_smartthings_backend.py"),
     ("guard", "test_guard.py"),
     ("tv watch", "test_tv_watch.py"),
+    ("keepalive", "test_keepalive.py"),
 ]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
