@@ -354,6 +354,11 @@ anything.
   `SetMute` is *not* used — a UN50TU690TFXZA answers it with UPnP error 501 ("Action Failed")
   outside an active DLNA session, so control goes through the websocket instead.
 - **Power:** the Tizen info endpoint on port 8001 reports `PowerState`.
+- **Wake:** the Roku launch normally turns the TV on over HDMI-CEC. If the TV still isn't up
+  after four checks, the app sends one Wake-on-LAN packet and keeps waiting. The TV's MAC address
+  is learned the first time it's seen on (`~/.samsungtv_mac`, or set `TV_MAC`). The TV needs
+  **Power On with Mobile** enabled (Settings → General → Network → Expert Settings), and
+  Wake-on-LAN over Wi-Fi is less dependable than wired. Look for `sending Wake-on-LAN` in the logs.
 
 Because `KEY_MUTE` toggles rather than sets, the app reads the current state first and only sends
 the key if the TV isn't already where it should be — so a retry can't undo a mute that worked.

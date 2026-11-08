@@ -102,16 +102,22 @@ say so here. Don't promote one to fact without evidence.
   transfer between machines. Unattended pairing attempts just time out.
 - **Roku's `/keypress/VolumeMute` appears to do nothing here.** The Roku returns 200 but the TV's
   reported mute state doesn't move. Tested; not a viable control path.
-- **The 18:30 launch turns the TV on only if the Roku was asleep.** The launch wakes the Roku
-  from Suspend, and the Roku wakes the TV over HDMI-CEC. An ECP launch to a Roku that is already
-  awake does not. Caught by `tv-watch` on 2026-11-04: the Roku's auto power-off had been
-  disabled, the Roku also restarted itself at 17:37 and stayed awake, and at 18:30 CNN launched
-  with the TV still off. The mute then failed with EHOSTUNREACH. Seen once, unambiguous. Keep the
-  Roku's auto power-off enabled.
-- **CNN dies about two hours into an evening (suspected).** On 2026-11-02 and 11-03 the Roku
-  stopped answering ECP for about a minute around 20:50 and came back on its home screen without
-  CNN. The Roku's Wi-Fi is strong, so an app crash is the leading guess, not the network.
-  `roku-cnn.py --keepalive` relaunches it. `Keepalive:` lines in the cron log count how often.
+- **An ECP launch wakes the TV over HDMI-CEC, unless the Roku rebooted while the TV was off
+  (suspected).** A launch woke the TV from a sleeping Roku (11-02, 11-03) and from an awake one
+  (11-05, 11-06, 11-07). It failed twice, and both times the Roku had restarted itself earlier
+  that day with the TV off: 11-04 (reboot 17:37, cause unknown, launch 18:30) and 11-08 (reboot
+  08:00 from a brief household power cut, launch 18:18). Both times CNN played to a dark TV and closed a few minutes later. The best guess is
+  that the Roku doesn't re-find the TV on the CEC bus until the TV is next turned on. An earlier
+  version of this bullet blamed the Roku being awake; the 11-05 to 11-07 launches disproved that.
+  `wait_awake()` falls back to Wake-on-LAN after `WOL_AFTER` failed checks. Whether it works on
+  this TV, which is on Wi-Fi, hasn't been tested yet: the next `sending Wake-on-LAN` log line
+  followed by `reachable … (after Wake-on-LAN)` will settle it, and so would its absence.
+- **CNN dies about two hours after each launch.** Seen on every evening from 11-02 to 11-07. It
+  happens 2h00–2h25 after CNN starts, whether that start is the 18:30 launch, a manual launch or a
+  keepalive relaunch, so it is tied to the session, not the time of day. Usually the Roku stops
+  answering ECP for about a minute and comes back on its home screen. The Wi-Fi is strong, so the
+  CNN app (27.1.1875) is the suspect, not the network. `roku-cnn.py --keepalive` relaunches it
+  within about 2 minutes. `Keepalive:` lines in the cron log record each crash.
 - **CNN takes a variable time to reach the foreground.** Poll Roku's `/query/active-app` until the
   app ID matches rather than sleeping a fixed interval.
 

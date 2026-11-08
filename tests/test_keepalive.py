@@ -34,6 +34,8 @@ APPS = {
     "home": '<app id="562859" type="home">Roku Dynamic Menu</app>',
     "bare home": "<app>Roku</app>",
     "youtube": '<app id="837" type="appl">YouTube</app>',
+    # What the Roku shows for a few minutes after CNN closes on a TV gone dark.
+    "native ui": '<app id="1" type="appl">Native UI</app>',
 }
 
 
@@ -85,9 +87,15 @@ def at(hh, mm, day=4):
     return time.strptime(f"2026-11-{day:02d} {hh:02d}:{mm:02d}", "%Y-%m-%d %H:%M")
 
 
+last_output = {"text": ""}
+
+
 def run(hh, mm, day=4):
-    with redirect_stdout(io.StringIO()):
-        return cron.keepalive(at(hh, mm, day))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        result = cron.keepalive(at(hh, mm, day))
+    last_output["text"] = buf.getvalue()
+    return result
 
 
 def reset(app="cnn"):
@@ -120,6 +128,7 @@ reset()
 run(20, 50)
 Roku.app = "youtube"
 check("opening another app disarms it", run(20, 51) == "other app")
+check("...and the log names the app", "YouTube replaced CNN" in last_output["text"])
 Roku.app = "home"
 run(20, 52)
 run(20, 53)
@@ -133,6 +142,14 @@ TV.power = "on"
 run(20, 52)
 run(20, 53)
 check("...and it stays disarmed once the TV is back", Roku.launches == 0)
+
+reset()
+run(23, 0)
+Roku.app, TV.power = "native ui", "unreachable"
+check("CNN closing with the TV off stands down", run(23, 3) == "other app")
+check("...without claiming someone opened an app (11-07 23:03)",
+      "closed with the TV off" in last_output["text"]
+      and "replaced" not in last_output["text"])
 
 reset()
 run(20, 50)

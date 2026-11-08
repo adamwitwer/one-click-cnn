@@ -33,7 +33,8 @@ def main():
         print(f"\n=== {name} ===", flush=True)
         env = dict(os.environ, PYTHONPATH=ROOT)
         # A developer's own .env must not steer the tests.
-        for key in ("TV_BACKEND", "TV_IP", "TV_MUTE_READBACK", "TV_TOKEN_FILE"):
+        for key in ("TV_BACKEND", "TV_IP", "TV_MUTE_READBACK", "TV_TOKEN_FILE",
+                    "TV_MAC", "TV_MAC_FILE"):
             env.pop(key, None)
         result = subprocess.run(
             [sys.executable, os.path.join(HERE, filename)],

@@ -53,6 +53,12 @@ HOLD_CHECKS = 4            # re-checks after a confirmed mute (see `hold`)
 HOLD_DELAY = 1.5
 AWAKE_ATTEMPTS = 10        # ~20s for a TV woken over HDMI-CEC to reach the LAN
 AWAKE_DELAY = 2.0
+# Wake-on-LAN goes out after this many failed checks. A CEC wake has never
+# needed more than 3 (every "reachable after N attempts" on the Pi to
+# 2026-11-08), so by the 4th the launch has evidently not woken the TV — as
+# happens after the Roku restarts while the TV is off.
+WOL_AFTER = 4
+WOL_PORT = 9
 
 # Serialises mute routines. Two of them interleaved (the launch worker and a tap
 # on the mute button) would read the same state and both toggle, cancelling out.
@@ -65,6 +71,11 @@ _CONTROL_LOCK = threading.RLock()
 def token_file() -> str:
     """Path to the pairing token written by scripts/pair-tv.py."""
     return os.path.expanduser(os.getenv("TV_TOKEN_FILE", "~/.samsungtv_token.txt"))
+
+
+def mac_file() -> str:
+    """Where the TV's MAC address is remembered for Wake-on-LAN."""
+    return os.path.expanduser(os.getenv("TV_MAC_FILE", "~/.samsungtv_mac"))
 
 
 def mute_readback() -> str:
@@ -376,6 +387,7 @@ def get_power(attempts: int = 2) -> str:
     for attempt in range(1, attempts + 1):
         info = probe(ip, timeout=3)
         if info:
+            _remember_mac(info)
             state = info.get("device", {}).get("PowerState", "").lower()
             # Older firmware omits PowerState but only answers when on.
             return state or "on"
@@ -384,7 +396,8 @@ def get_power(attempts: int = 2) -> str:
     return "unreachable"
 
 
-def wait_awake(attempts: int = AWAKE_ATTEMPTS, delay: float = AWAKE_DELAY) -> bool:
+def wait_awake(attempts: int = AWAKE_ATTEMPTS, delay: float = AWAKE_DELAY,
+               wol_after: int = WOL_AFTER) -> bool:
     """Wait until the TV is on the network. True if it got there.
 
     A TV in standby is *off* the LAN — its ports refuse connections instantly
@@ -392,16 +405,118 @@ def wait_awake(attempts: int = AWAKE_ATTEMPTS, delay: float = AWAKE_DELAY) -> bo
     launch-time mute is fired at exactly the moment the TV may still be coming
     up. Sending into that gap is a mute that never happens, reported as a TV
     that can't be reached.
+
+    If CEC hasn't woken it after `wol_after` checks, send one Wake-on-LAN
+    packet and keep waiting. Only ever called straight after a launch, which
+    is meant to turn the TV on, so waking it here can't override anyone.
     """
+    sent_wol = False
     for attempt in range(1, attempts + 1):
         if get_power() == "on":
             if attempt > 1:
-                log(f"TV reachable after {attempt} attempts.")
+                how = " (after Wake-on-LAN)" if sent_wol else ""
+                log(f"TV reachable after {attempt} attempts{how}.")
             return True
+        if attempt == wol_after:
+            sent_wol = _wake_on_lan(attempt)
         if attempt < attempts:
             time.sleep(delay)
     log("TV never came up; trying anyway.")
     return False
+
+
+# ---------- Wake-on-LAN ----------
+#
+# Fallback for when the launch doesn't wake the TV over HDMI-CEC. Seen twice,
+# both times after the Roku had restarted while the TV was off. The TV must
+# have Settings → General → Network → Expert Settings → Power On with Mobile
+# enabled, and this one is on Wi-Fi, where Wake-on-LAN is less dependable
+# than wired.
+#
+# The MAC address is learned from the TV's own info endpoint whenever it's
+# seen on, so nothing needs configuring; TV_MAC overrides it.
+
+_known_mac = None
+
+
+def _normalise_mac(mac: str) -> str:
+    digits = "".join(c for c in (mac or "") if c in "0123456789abcdefABCDEF")
+    if len(digits) != 12:
+        return ""
+    return ":".join(digits[i:i + 2] for i in range(0, 12, 2)).lower()
+
+
+def _remember_mac(info: dict) -> None:
+    """Record the TV's MAC from a probe answer, writing only when it changes."""
+    global _known_mac
+    mac = _normalise_mac(info.get("device", {}).get("wifiMac", ""))
+    if not mac or mac == _known_mac:
+        return
+    _known_mac = mac
+    try:
+        path = mac_file()
+        try:
+            with open(path) as f:
+                if f.read().strip() == mac:
+                    return
+        except OSError:
+            pass
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            f.write(mac + "\n")
+        os.replace(tmp, path)
+    except OSError as e:
+        log(f"Could not save the TV's MAC address for Wake-on-LAN: {e}")
+
+
+def tv_mac() -> str:
+    """TV_MAC if set, else the address last learned from the TV, else ''."""
+    configured = _normalise_mac(os.getenv("TV_MAC", ""))
+    if configured:
+        return configured
+    try:
+        with open(mac_file()) as f:
+            return _normalise_mac(f.read())
+    except OSError:
+        return ""
+
+
+def magic_packet(mac: str) -> bytes:
+    """6 x 0xFF, then the MAC 16 times."""
+    return b"\xff" * 6 + bytes.fromhex(_normalise_mac(mac).replace(":", "")) * 16
+
+
+def send_wol(mac: str) -> bool:
+    """Broadcast a Wake-on-LAN packet. True if it went out on any address."""
+    targets = ["255.255.255.255"]
+    ip = tv_ip()
+    if ip.count(".") == 3:
+        targets.append(ip.rsplit(".", 1)[0] + ".255")   # /24, as discover() assumes
+    packet = magic_packet(mac)
+    sent = False
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        for target in targets:
+            try:
+                s.sendto(packet, (target, WOL_PORT))
+                sent = True
+            except OSError as e:
+                log(f"Wake-on-LAN to {target} failed: {e}")
+    finally:
+        s.close()
+    return sent
+
+
+def _wake_on_lan(failed_checks: int) -> bool:
+    mac = tv_mac()
+    if not mac:
+        log(f"TV not up after {failed_checks} checks, and its MAC isn't known yet "
+            f"(learned the first time the TV is seen on, or set TV_MAC); "
+            f"can't send Wake-on-LAN.")
+        return False
+    log(f"TV not up after {failed_checks} checks; sending Wake-on-LAN to {mac}.")
+    return send_wol(mac)
 
 
 def get_status() -> str:

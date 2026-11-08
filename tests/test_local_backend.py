@@ -86,9 +86,12 @@ def fake_get_power():
     return tv["power"]
 
 
+real_get_power = tv_local.get_power
+wol_sent = []
 tv_local.send_key = fake_send_key
 tv_local.get_mute = fake_get_mute
 tv_local.get_power = fake_get_power
+tv_local.send_wol = lambda mac: wol_sent.append(mac) or True
 reset()
 
 
@@ -159,6 +162,52 @@ def run(real_sleep):
           tv_local.wait_awake() is True and routes.get_tv_status() == "unmuted")
     reset(waking=tv_local.AWAKE_ATTEMPTS)
     check("gives up waiting eventually", tv_local.wait_awake() is False)
+
+    # --- Wake-on-LAN, when the launch didn't wake the TV over CEC ---
+    import tempfile
+    mac_dir = tempfile.mkdtemp()
+    os.environ["TV_MAC_FILE"] = os.path.join(mac_dir, "mac")
+    os.environ.pop("TV_MAC", None)
+    tv_local._known_mac = None
+
+    def wake(waking):
+        reset(waking=waking)
+        del wol_sent[:]
+        return tv_local.wait_awake()
+
+    os.environ["TV_MAC"] = "C8-12-0B-29-6A-44"
+    check("a normal CEC wake sends no Wake-on-LAN",
+          wake(tv_local.WOL_AFTER - 1) is True and wol_sent == [])
+    check("a TV still off after WOL_AFTER checks gets one Wake-on-LAN",
+          wake(tv_local.WOL_AFTER + 2) is True and wol_sent == ["c8:12:0b:29:6a:44"])
+    check("a TV that never comes up still gets only one",
+          wake(tv_local.AWAKE_ATTEMPTS) is False and len(wol_sent) == 1)
+
+    os.environ.pop("TV_MAC")
+    check("no known MAC: nothing sent, still waits it out",
+          wake(tv_local.WOL_AFTER + 2) is True and wol_sent == [])
+
+    # The MAC is learned from the TV's info endpoint whenever it's seen on.
+    real_probe = tv_local.probe
+    tv_local.probe = lambda ip, timeout=1.5: {
+        "device": {"PowerState": "on", "wifiMac": "C8:12:0B:29:6A:44"}}
+    try:
+        check("get_power still reports on", real_get_power() == "on")
+    finally:
+        tv_local.probe = real_probe
+    check("...and remembers the MAC for next time",
+          tv_local.tv_mac() == "c8:12:0b:29:6a:44")
+    check("which Wake-on-LAN then uses",
+          wake(tv_local.WOL_AFTER + 2) is True and wol_sent == ["c8:12:0b:29:6a:44"])
+    os.environ["TV_MAC"] = "00:11:22:33:44:55"
+    check("TV_MAC overrides the learned one", tv_local.tv_mac() == "00:11:22:33:44:55")
+    os.environ.pop("TV_MAC")
+    os.environ.pop("TV_MAC_FILE")
+
+    packet = tv_local.magic_packet("c8:12:0b:29:6a:44")
+    check("magic packet: 6 x FF then the MAC 16 times",
+          len(packet) == 102 and packet[:6] == b"\xff" * 6
+          and packet[6:] == bytes.fromhex("c8120b296a44") * 16)
 
     # --- failure modes must never report success ---
     reset(muted=False, reachable=False)

@@ -267,24 +267,25 @@ def get_roku_power():
 
 
 def get_foreground():
-    """'cnn', 'home' (home screen or screensaver over it), 'other' (some other
-    app), or None if the Roku didn't answer."""
+    """(kind, app name). kind is 'cnn', 'home' (home screen or screensaver
+    over it), 'other' (some other app), or None if the Roku didn't answer."""
     try:
         resp = requests.get(f"http://{ROKU_IP}:8060/query/active-app", timeout=3)
         if resp.status_code != 200:
-            return None
+            return None, ""
         app = ET.fromstring(resp.text).find("app")
     except Exception:
-        return None
+        return None, ""
     if app is None:
-        return "home"
+        return "home", ""
+    name = (app.text or "").strip()
     app_id = app.attrib.get("id", "")
     if app_id == CNN_APP_ID:
-        return "cnn"
+        return "cnn", name
     # The home screen reports either type="home" or a bare <app>Roku</app>.
     if not app_id or app.attrib.get("type") == "home":
-        return "home"
-    return "other"
+        return "home", name
+    return "other", name
 
 
 # ---------- keepalive ----------
@@ -356,7 +357,7 @@ def keepalive(now=None):
 
 
 def _keepalive_step(state):
-    fg = get_foreground()
+    fg, name = get_foreground()
     if fg is None:
         return "roku not answering"          # the crash itself; wait it out
     if fg == "cnn":
@@ -364,7 +365,14 @@ def _keepalive_step(state):
         return "cnn running"
     if fg == "other":
         if state["armed"]:
-            log("Keepalive: another app was opened over CNN; standing down.")
+            # Not necessarily a person: when the TV goes off, CNN closes and
+            # the Roku briefly shows its own "Native UI" in its place.
+            label = name or "another app"
+            if _tv_is_on() is False:
+                log(f"Keepalive: CNN closed with the TV off ({label} in its place); "
+                    f"standing down.")
+            else:
+                log(f"Keepalive: {label} replaced CNN; standing down.")
         state.update(armed=False, home_runs=0)
         return "other app"
     if not state["armed"]:
