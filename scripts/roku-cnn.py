@@ -297,7 +297,8 @@ def get_foreground():
 #
 #   * CNN must have been seen in the foreground this evening, and the Roku is
 #     now on its home screen. Someone opening another app disarms it until CNN
-#     is seen again.
+#     is seen again. "Native UI" is not someone: it's the Roku's stand-in after
+#     CNN closes abnormally, and it gives way to the home screen by itself.
 #   * The TV must be on and the Roku awake. Launching to a sleeping Roku wakes
 #     the TV over HDMI-CEC, which would undo someone turning it off for the
 #     night; and with the TV off, CNN closes by itself within minutes.
@@ -312,6 +313,11 @@ KEEPALIVE_START = (18, 30)
 KEEPALIVE_END = (23, 30)
 KEEPALIVE_GRACE = 2
 KEEPALIVE_MAX = 3
+
+# Shown in CNN's place when it closes under a TV gone dark (11-07, 11-14) and
+# after a crash with the TV on (11-13 21:13, when standing down on it left CNN
+# off for the rest of the evening). Nobody opens it on purpose.
+NATIVE_UI = "Native UI"
 
 
 def keepalive_state_file():
@@ -365,12 +371,14 @@ def _keepalive_step(state):
         return "cnn running"
     if fg == "other":
         if state["armed"]:
-            # Not necessarily a person: when the TV goes off, CNN closes and
-            # the Roku briefly shows its own "Native UI" in its place.
             label = name or "another app"
             if _tv_is_on() is False:
                 log(f"Keepalive: CNN closed with the TV off ({label} in its place); "
                     f"standing down.")
+            elif name == NATIVE_UI:
+                # A crash, not a person. Stay armed and let the home-screen
+                # path below decide once the Roku gets there.
+                return "native ui"
             else:
                 log(f"Keepalive: {label} replaced CNN; standing down.")
         state.update(armed=False, home_runs=0)

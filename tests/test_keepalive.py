@@ -34,7 +34,8 @@ APPS = {
     "home": '<app id="562859" type="home">Roku Dynamic Menu</app>',
     "bare home": "<app>Roku</app>",
     "youtube": '<app id="837" type="appl">YouTube</app>',
-    # What the Roku shows for a few minutes after CNN closes on a TV gone dark.
+    # What the Roku shows in CNN's place after it closes abnormally: when the TV
+    # goes dark under it (11-07, 11-14), and after a crash with the TV on (11-13).
     "native ui": '<app id="1" type="appl">Native UI</app>',
 }
 
@@ -122,6 +123,22 @@ run(20, 50)
 Roku.app = "bare home"
 run(20, 51)
 check("the bare <app>Roku</app> home screen counts as home", run(20, 52) == "relaunched")
+
+# 11-13 21:12: the crash came back as "Native UI" with the TV on, then the home
+# screen a minute later. Keepalive took it for a person and stood down for the
+# night, leaving the TV on a screensaver until 23:31.
+reset()
+run(21, 11)
+Roku.answering = False
+run(21, 12)
+Roku.answering, Roku.app = True, "native ui"
+check("Native UI after a crash with the TV on is waited out, not obeyed (11-13)",
+      run(21, 13) == "native ui" and "replaced" not in last_output["text"])
+check("...and nothing is launched over it while it lingers",
+      run(21, 14) == "native ui" and Roku.launches == 0)
+Roku.app = "home"
+check("...then the home screen gets the usual grace minute", run(21, 15) == "waiting")
+check("...and CNN comes back", run(21, 16) == "relaunched" and Roku.launches == 1)
 
 print("leaving people alone")
 reset()
